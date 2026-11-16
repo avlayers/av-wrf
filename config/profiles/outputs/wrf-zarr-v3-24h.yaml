@@ -1,4 +1,3 @@
-# Twenty-four hourly leads on the locked wrf-zarr-v3 shard layout.
 profile_id: wrf-zarr-v3-24h
 schema_id: wrf-zarr-v3
 map_end_hour: 24

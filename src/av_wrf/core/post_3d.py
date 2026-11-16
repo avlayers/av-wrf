@@ -27,6 +27,7 @@ from av_wrf.core.grid import (
 )
 from av_wrf.core.thermo import (
     G0_MPS2,
+    MIN_WATER_VAPOR_KGKG,
     afwa_mslp_vec,
     geometric_w_to_omega_vec,
     groom_f32_buf,
@@ -144,7 +145,7 @@ def _cloud_and_thermo(
     t_buf = groom_f32_buf(tk, 15)
     validate_thermodynamic_field("temp_k", np.frombuffer(t_buf, np.float32))
     qv_in = _mass_view(raw.qvapor_kgkg, trim, shp3).astype(np.float64)
-    if bool(np.any(qv_in < -1e-4)):
+    if bool(np.any(qv_in < MIN_WATER_VAPOR_KGKG)):
         raise ValueError("Large negative QVAPOR encountered in post_frame")
     spfh = mixing_ratio_to_spfh_vec(qv_in)
     if bool(np.any(spfh >= 1.0)):
