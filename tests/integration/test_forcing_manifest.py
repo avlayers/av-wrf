@@ -88,7 +88,7 @@ def _messages(lock: RunLock, fhr: int) -> list[dict[str, object]]:
 class TestForcingManifest(TestCase):
     def test_nested_gfs_rejects_cutout_that_only_covers_child(self) -> None:
         bundle = bundle_for_recipe(ROOT / "config", GFS)
-        domain = replace(bundle.domain, parent_grid_ratio=3)
+        domain = replace(bundle.domain, parent_grid_ratio=3, nest_trigger_ratio=3.5)
         spacing = bundle.primary_source.grid_spacing_deg
         west, south, east, north = computational_latlon_bounds(domain, snap_deg=spacing)
         nx = round((east - west) / spacing) + 1

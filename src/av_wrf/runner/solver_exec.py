@@ -169,7 +169,6 @@ def _execute_solver_binaries(
     solver_prefix: Path,
     mpi_launcher: tuple[str, ...],
     timeout_s: int | None,
-    nproc: tuple[int, int] | None,
 ) -> tuple[tuple[str, float], ...]:
     wps = _run_wps_stages(attempt_dir, solver_prefix, timeout_s)
     mg_lvls, mg_soil = inspect_metgrid_dims(attempt_dir, b, lock)
@@ -185,8 +184,7 @@ def _execute_solver_binaries(
     )
     namelist_path = attempt_dir / "namelist.input"
     namelist_path.write_text(render_fortran_namelist(namelist), encoding="utf-8")
-    # The launcher supplies every RunLock rank; real.exe decomposes all of them while
-    # wrf.exe reserves the trailing rank for I/O quilting.
+    # Every launched rank computes; WRF derives the same native mesh for real and wrf.
     rank_cmd = [*mpi_launcher, str(lock.mpi_ranks)]
     real = _exec_mpi_step(
         attempt_dir,
@@ -199,7 +197,7 @@ def _execute_solver_binaries(
         validate_wrfinput_nc(
             wrfinput, profile, b.science, published=tag == domain_tag(lock.active_domain_id)
         )
-        if b.science.sf_lake_physics == 1 and profile.ocean_seeds_lat_lon_deg:
+        if b.science.sf_lake_physics == 1:
             validate_lake_initialization(attempt_dir / f"geo_em.{tag}.nc", wrfinput)
     integration = compile_wrf_run_namelist(
         b.domain,
@@ -208,7 +206,6 @@ def _execute_solver_binaries(
         b.primary_source,
         metgrid_levels=mg_lvls,
         metgrid_soil_levels=mg_soil,
-        nproc=nproc,
     )
     if "iofields_filename" in integration["time_control"]:
         (attempt_dir / MYNN_HISTORY_FILE).write_text(MYNN_HISTORY_TEXT, encoding="utf-8")
@@ -238,7 +235,6 @@ def run_wrf_cycle(
     solver_prefix: Path = Path("/opt/av-wrf"),
     timeout_s: int | None = None,
     bundle: LoadedBundle | None = None,
-    nproc: tuple[int, int] | None = None,
 ) -> SolverReceipt:
     """Execute `ungrib -> metgrid -> real -> wrf` in clean attempt scratch and bind receipt."""
     b = load_bundle(config_root, product_id) if bundle is None else bundle
@@ -262,7 +258,7 @@ def run_wrf_cycle(
         if recovered is not None:
             return recovered
         scratch, receipt = _solve_in_scratch(
-            attempt_dir, b, lock, grib_dir, geog_file, solver_prefix, mpi_launcher, timeout_s, nproc
+            attempt_dir, b, lock, grib_dir, geog_file, solver_prefix, mpi_launcher, timeout_s
         )
         raw = _install_solved_attempt(scratch, attempt_dir, receipt)
         put_idempotent(store, receipt_key, raw)
@@ -278,7 +274,6 @@ def _solve_in_scratch(
     solver_prefix: Path,
     mpi_launcher: tuple[str, ...],
     timeout_s: int | None,
-    nproc: tuple[int, int] | None,
 ) -> tuple[Path, SolverReceipt]:
     workspace = Path(mkdtemp(prefix=f".{attempt_dir.name}.solve-", dir=attempt_dir.parent))
     scratch = workspace / "work"
@@ -291,7 +286,7 @@ def _solve_in_scratch(
     try:
         inputs = perf_counter() - started
         stages = _execute_solver_binaries(
-            scratch, bundle, lock, solver_prefix, mpi_launcher, timeout_s, nproc
+            scratch, bundle, lock, solver_prefix, mpi_launcher, timeout_s
         )
     except Exception as exc:
         exc.add_note(f"Native solver logs are in {scratch}")

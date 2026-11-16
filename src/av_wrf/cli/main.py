@@ -134,9 +134,9 @@ def _build_manifest(env: RuntimeEnv, *, allow_unpinned_dev: bool) -> BuildManife
 def _run_check(cfg_dir: Path, product_id: str | None, mpi_ranks: int) -> int:
     out: dict[str, object] = {"status": "ok", "mpi_ranks": mpi_ranks}
     if product_id is None:
-        out["products"] = [dataclasses.asdict(s) for s in check_all_products(cfg_dir)]
+        out["products"] = [dataclasses.asdict(s) for s in check_all_products(cfg_dir, mpi_ranks)]
     else:
-        out.update(dataclasses.asdict(check_product_config(cfg_dir, product_id)))
+        out.update(dataclasses.asdict(check_product_config(cfg_dir, product_id, mpi_ranks)))
     print(json.dumps(out))
     return 0
 
@@ -174,7 +174,6 @@ def _run_plan_prep_or_solve(
             attempt_id=att,
             work_dir=Path(args.work_dir),
             bundle=bundle,
-            nproc=env.nproc,
         )
         return {
             "status": "prepped",
@@ -196,7 +195,6 @@ def _run_plan_prep_or_solve(
         runtime_manifest=load_build_manifest(Path(env.build_manifest_path), env.oci_digest),
         timeout_s=env.native_timeout_s,
         bundle=bundle,
-        nproc=env.nproc,
     )
     return {"status": "solved", "cycle": part, "wrfout_count": len(s_rec.wrfout_sha256s)}
 

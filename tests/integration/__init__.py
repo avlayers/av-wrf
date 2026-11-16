@@ -40,7 +40,10 @@ def bundle_for_recipe(config: Path, recipe: ForcingRecipe) -> LoadedBundle:
         bundle = load_bundle(config, path.stem)
         if find_forcing_recipe(bundle.primary_source) is recipe:
             return dataclasses.replace(
-                bundle, domain=dataclasses.replace(bundle.domain, parent_grid_ratio=1)
+                bundle,
+                domain=dataclasses.replace(
+                    bundle.domain, parent_grid_ratio=1, nest_trigger_ratio=20.0
+                ),
             )
     raise AssertionError(f"No configured product for {recipe.identity}")
 
@@ -62,7 +65,9 @@ def stage_sparse_config(src_cfg: Path, dst_cfg: Path) -> str:
     domain_yaml.write_text(
         domain_yaml.read_text(encoding="utf-8")
         .replace("parent_grid_ratio: 3", "parent_grid_ratio: 1")
-        .replace("parent_halo_cells: 36", "parent_halo_cells: 0"),
+        .replace("parent_halo_cells: 33", "parent_halo_cells: 0")
+        .replace("parent_halo_cells: 30", "parent_halo_cells: 0")
+        .replace("nest_trigger_ratio: 3.5", "nest_trigger_ratio: 20.0"),
         encoding="utf-8",
     )
     product = bundle.product

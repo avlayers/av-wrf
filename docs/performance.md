@@ -1,46 +1,50 @@
 # Parallel Scaling and I/O
 
-`av-wrf` launches `real.exe` and `wrf.exe` with `AV_WRF_MPI_RANKS` MPI ranks and
-decomposes each active domain into `nproc_x` by `nproc_y` patches. The default is
-sixteen ranks. Every patch stays at or above WRF's ten-cell minimum.
+`av-wrf` launches `real.exe` and `wrf.exe` with `AV_WRF_MPI_RANKS` MPI ranks. Every
+launched rank computes; history writes are synchronous. The default is four
+ranks. WRF derives its own decomposition from the locked rank count, so no
+runtime variable can change an already planned layout.
 
 ## Environment
 
 | Variable | Default | Purpose |
-| :--- | :--- | :--- |
-| `AV_WRF_MPI_RANKS` | `16` | Total MPI ranks passed to the launcher. |
-| `AV_WRF_NPROC_X` | unset | Manual integration mesh in x. Set with `AV_WRF_NPROC_Y`. |
-| `AV_WRF_NPROC_Y` | unset | Manual integration mesh in y. |
+| :--- | --- | --- |
+| `AV_WRF_MPI_RANKS` | `4` | Total MPI ranks passed to the launcher and frozen in the RunLock. |
 | `AV_WRF_MPI_LAUNCHER` | `mpirun -np` | Launcher and rank flag; the runner appends ranks and executable. |
-
-When both `nproc` variables are unset, the compiler chooses a near-square
-factor pair that keeps every patch at least ten cells wide, prefers even counts,
-and places the smaller factor in x. The manual mesh applies to the integration
-communicator: with quilting enabled, `nproc_x * nproc_y` must equal
-`AV_WRF_MPI_RANKS - 1`. `real.exe` disables quilting and decomposes all launched
-ranks.
 
 For a Slurm allocation, override the launcher:
 
 ```sh
 export AV_WRF_MPI_LAUNCHER='srun --mpi=pmix -n'
-export AV_WRF_MPI_RANKS=16
+export AV_WRF_MPI_RANKS=4
 ```
 
 The runner appends the rank count and the solver executable, so the command is
-`... -n 16 /opt/av-wrf/bin/wrf.exe`.
+`... -n 4 /opt/av-wrf/bin/wrf.exe`.
 
-## I/O Quilting
+## Decomposition
 
-Integration reserves one rank per group for asynchronous history writes:
-`nio_tasks_per_group = 1` and `nio_groups = 1`. Compute ranks proceed while the
-I/O rank writes. Single-rank runs disable quilting. Full asynchronous quilting
-with multiple groups is future work.
+WRF's pinned default mesh is the largest divisor of the rank count no greater
+than `sqrt(ranks)` in x and the remainder in y. `check` and `plan` use the same
+helper to reject a rank count that would create a patch narrower than WRF's
+ten-cell minimum on any resolved domain.
 
-## Rank Accounting
+| Ranks | Mesh |
+| ---: | ---: |
+| 1 | 1x1 |
+| 2 | 1x2 |
+| 3 | 1x3 |
+| 4 | 2x2 |
+| 8 | 2x4 |
+| 12 | 3x4 |
+| 16 | 4x4 |
 
-`real.exe` uses every launched rank for compute. `wrf.exe` uses
-`AV_WRF_MPI_RANKS - 1` compute ranks plus one I/O rank. Run planning validates
-both decompositions against the child and any nested parent, so an invalid mesh
-fails before the solver starts. A single-rank Docker check overrides
-`AV_WRF_MPI_RANKS=1`.
+The RunLock records the rank count. Namelists omit `nproc_x`/`nproc_y` and set
+`nio_tasks_per_group = 0`, so the pinned native implementation owns the layout.
+
+## Qualification
+
+Qualify two ranks with one OpenMP thread per rank on the target host first, then
+compare four ranks. Admit higher counts only after measured memory and elapsed
+time fit the operating policy. WPS stages currently run serially; measure any
+future parallel WPS change separately.

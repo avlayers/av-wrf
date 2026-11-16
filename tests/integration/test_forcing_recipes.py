@@ -116,7 +116,10 @@ class TestForcingRecipes(TestCase):
             encoding="utf-8",
         )
         loaded = load_bundle(self.cfg, self.product)
-        self.bundle = replace(loaded, domain=replace(loaded.domain, parent_grid_ratio=1))
+        self.bundle = replace(
+            loaded,
+            domain=replace(loaded.domain, parent_grid_ratio=1, nest_trigger_ratio=20.0),
+        )
         self.enterContext(patch.dict("av_wrf.runner.mirrors._RECIPES", {RECIPE.identity: RECIPE}))
         self.store = LocalFileStore(self.root / "store")
         self.geo = self.root / "geo_em.d01.nc"
@@ -296,11 +299,11 @@ class TestForcingRecipes(TestCase):
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.setncattr("FLAG_SH", 1)
                 ds["SPECHUMD"][:] = np.float32(-4.05e-5)
-            self.assertEqual(_inspect_metgrid_dims(self.root, self.bundle, self.lock), (5, 8))
+            self.assertEqual(inspect_metgrid_dims(self.root, self.bundle, self.lock), (5, 8))
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds["SPECHUMD"][:] = np.float32(-2.0e-4)
             with self.assertRaisesRegex(ValueError, "Invalid values in WPS field SPECHUMD"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds["SPECHUMD"][:] = 1.0
             with self.assertRaisesRegex(ValueError, "Invalid values in WPS field SPECHUMD"):

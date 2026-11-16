@@ -32,7 +32,7 @@ class TestWpsNamelist(unittest.TestCase):
         nested = compile_geogrid_namelist_sections(b.domain, nested=True)
         single = compile_geogrid_namelist_sections(b.domain, nested=False)
         self.assertEqual(nested["share"]["max_dom"], 2)
-        self.assertEqual(nested["geogrid"]["e_we"], (107, 103))
+        self.assertEqual(nested["geogrid"]["e_we"], (101, 103))
         self.assertEqual(nested["geogrid"]["dx"], 9000.0)
         self.assertEqual(single["geogrid"]["e_we"], 103)
         self.assertEqual(single["geogrid"]["geog_data_res"], "modis_lai+30s+default")
@@ -62,7 +62,7 @@ class TestWpsNamelist(unittest.TestCase):
         )
         wps = compile_wps_namelist_sections(b.domain, b.science, lock, b.primary_source)
         self.assertEqual(wps["share"]["max_dom"], 2)
-        self.assertEqual(wps["geogrid"]["i_parent_start"], (1, 37))
+        self.assertEqual(wps["geogrid"]["i_parent_start"], (1, 34))
         self.assertEqual(required_forcing_forecast_hours(lock, b.primary_source), tuple(range(23)))
         self.assertEqual(dataclasses.replace(lock, lead_hours=(16,)).active_domain_id, 2)
 

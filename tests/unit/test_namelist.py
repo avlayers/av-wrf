@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import sys
 import unittest
-import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,12 +14,11 @@ for p in (ROOT, ROOT / "src"):
 
 from av_wrf.contracts import BuildManifest, RunLock, ScienceProfile  # noqa: E402
 from av_wrf.core import (  # noqa: E402
-    MIN_PATCH_CELLS,
     compile_geogrid_namelist_sections,
     compile_wps_namelist_sections,
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
-    mpi_decomposition,
+    native_decomposition,
     render_fortran_namelist,
     required_forcing_forecast_hours,
 )
@@ -216,7 +214,7 @@ class TestNamelist(unittest.TestCase):
         self.assertNotIn("bucket_J", wrf_txt)
         self.assertIn("shinhong_scu_mixing = .false.,", wrf_txt)
         self.assertIn("afwa_buoy_opt = 1, 1,", wrf_txt)
-        self.assertIn("&namelist_quilt\n nio_tasks_per_group = 1,\n nio_groups = 1,", wrf_txt)
+        self.assertIn("&namelist_quilt\n nio_tasks_per_group = 0,\n nio_groups = 1,", wrf_txt)
         self.assertNotIn("prec_acc_dt", wrf_txt)
 
     def test_custom_geography_resolution_precedes_default_for_each_field(self) -> None:
@@ -246,53 +244,20 @@ class TestNamelist(unittest.TestCase):
                 domain, dataclasses.replace(bundle.science, time_step_s=71), bundle.primary_source
             )
 
-    def test_mpi_decomposition_multiplies_to_ranks_and_keeps_min_patch(self) -> None:
-        for e_we, e_sn, ranks in (
-            (223, 193, 8),
-            (103, 103, 8),
-            (175, 133, 8),
-            (147, 137, 3),
-            (223, 193, 1),
-        ):
-            with self.subTest(e_we=e_we, e_sn=e_sn, ranks=ranks):
-                nproc_x, nproc_y = mpi_decomposition(e_we, e_sn, ranks)
-                self.assertEqual(nproc_x * nproc_y, ranks)
-                self.assertGreaterEqual(e_we // nproc_x, MIN_PATCH_CELLS)
-                self.assertGreaterEqual(e_sn // nproc_y, MIN_PATCH_CELLS)
-        with self.assertRaisesRegex(ValueError, "narrower than"):
-            mpi_decomposition(103, 103, 37)
-
-    def test_nproc_and_light_quilt_follow_rank_count(self) -> None:
-        bundle = load_bundle(ROOT / "config", _first_product())
-        real = compile_wrf_run_namelist(
-            bundle.domain,
-            bundle.science,
-            _run_lock(bundle, 8),
-            bundle.primary_source,
-            for_real=True,
-        )
-        integration = compile_wrf_run_namelist(
-            bundle.domain, bundle.science, _run_lock(bundle, 8), bundle.primary_source
-        )
-        real_x, real_y = real["domains"]["nproc_x"], real["domains"]["nproc_y"]
-        int_x, int_y = integration["domains"]["nproc_x"], integration["domains"]["nproc_y"]
-        assert isinstance(real_x, int) and isinstance(real_y, int)
-        assert isinstance(int_x, int) and isinstance(int_y, int)
-        self.assertEqual(real_x * real_y, 8)
-        self.assertEqual(int_x * int_y, 7)
-        self.assertEqual(integration["namelist_quilt"]["nio_tasks_per_group"], 1)
-        single = compile_wrf_run_namelist(
-            bundle.domain, bundle.science, _run_lock(bundle, 1), bundle.primary_source
-        )
-        self.assertNotIn("nproc_x", single["domains"])
-        self.assertEqual(single["namelist_quilt"]["nio_tasks_per_group"], 0)
-
-    def test_low_vertical_resolution_source_warns(self) -> None:
-        bundle = load_bundle(ROOT / "config", _first_product())
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            compile_wrf_namelist_sections(bundle.domain, bundle.science, bundle.candidate_source)
-        self.assertTrue(any("metgrid levels" in str(item.message) for item in caught))
+    def test_native_decomposition_matches_wrf_default_mesh(self) -> None:
+        for ranks, mesh in {
+            1: (1, 1),
+            2: (1, 2),
+            3: (1, 3),
+            4: (2, 2),
+            8: (2, 4),
+            12: (3, 4),
+            16: (4, 4),
+        }.items():
+            with self.subTest(ranks=ranks):
+                self.assertEqual(native_decomposition(ranks), mesh)
+        with self.assertRaisesRegex(ValueError, ">= 1"):
+            native_decomposition(0)
 
     def test_every_product_compiles_for_real_and_integration_at_two_rank_counts(self) -> None:
         for path in sorted((ROOT / "config" / "products").glob("*.yaml")):

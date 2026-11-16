@@ -23,16 +23,6 @@ class RuntimeEnv:
     webhook_token: str = field(default="", repr=False)
     native_timeout_s: int | None = None
     s3: S3Config | None = None
-    # Manual compute-processor mesh for WRF integration; one launched rank is reserved
-    # for I/O quilting, so nproc_x * nproc_y must equal mpi_ranks - 1.
-    nproc_x: int | None = None
-    nproc_y: int | None = None
-
-    @property
-    def nproc(self) -> tuple[int, int] | None:
-        if self.nproc_x is None or self.nproc_y is None:
-            return None
-        return self.nproc_x, self.nproc_y
 
 
 def _optional_int(env: Mapping[str, str], key: str) -> int | None:
@@ -43,15 +33,9 @@ def _optional_int(env: Mapping[str, str], key: str) -> int | None:
 def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnv:
     """Parse process environment once into a validated frozen RuntimeEnv."""
     env = os.environ if environ is None else environ
-    ranks = int(env.get("AV_WRF_MPI_RANKS", "16"))
+    ranks = int(env.get("AV_WRF_MPI_RANKS", "4"))
     if ranks < 1:
         raise ValueError("AV_WRF_MPI_RANKS must be >= 1")
-    nproc_x = _optional_int(env, "AV_WRF_NPROC_X")
-    nproc_y = _optional_int(env, "AV_WRF_NPROC_Y")
-    if (nproc_x is None) != (nproc_y is None):
-        raise ValueError("Set both AV_WRF_NPROC_X and AV_WRF_NPROC_Y or neither")
-    if nproc_x is not None and (nproc_x < 1 or nproc_y is None or nproc_y < 1):
-        raise ValueError("AV_WRF_NPROC_X and AV_WRF_NPROC_Y must be >= 1")
     default_launcher = "mpirun --allow-run-as-root -np" if os.geteuid() == 0 else "mpirun -np"
     launcher = tuple(shlex.split(env.get("AV_WRF_MPI_LAUNCHER", default_launcher)))
     if not launcher or not launcher[0]:
@@ -85,6 +69,4 @@ def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnv:
         webhook_token=env.get("AV_WRF_WEBHOOK_TOKEN", "").strip(),
         native_timeout_s=native_timeout_s,
         s3=s3,
-        nproc_x=nproc_x,
-        nproc_y=nproc_y,
     )

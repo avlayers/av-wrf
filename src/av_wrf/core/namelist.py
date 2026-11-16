@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from datetime import datetime, timedelta
 from math import isqrt
 
@@ -14,7 +13,11 @@ from av_wrf.contracts import (
     ScienceProfile,
     parse_iso_utc,
 )
-from av_wrf.core.nesting import nesting_active, parent_domain_shape
+from av_wrf.core.nesting import (
+    nesting_active,
+    parent_domain_shape,
+    validate_resolved_topology,
+)
 from av_wrf.core.physics_namelist import (
     NamelistSections,
     NamelistValue,
@@ -33,59 +36,13 @@ MYNN_HISTORY_TEXT = f"+:h:0:{MYNN_CLOUD_FIELD}\n"
 MIN_PATCH_CELLS = 10
 
 
-def mpi_decomposition(e_we: int, e_sn: int, ranks: int) -> tuple[int, int]:
-    """Return a near-square WRF `(nproc_x, nproc_y)` mesh that multiplies to `ranks`."""
+def native_decomposition(ranks: int) -> tuple[int, int]:
+    """Mirror WRF's default MPASPECT mesh: largest divisor <= sqrt(ranks) in x."""
+    # https://github.com/wrf-model/WRF/blob/v4.8.0/external/RSL_LITE/module_dm.F
     if isinstance(ranks, bool) or ranks < 1:
-        raise ValueError("MPI decomposition ranks must be >= 1")
-    if e_we < MIN_PATCH_CELLS or e_sn < MIN_PATCH_CELLS:
-        raise ValueError(f"domain is narrower than WRF's {MIN_PATCH_CELLS}-cell minimum patch")
-    if ranks == 1:
-        return 1, 1
-    best: tuple[tuple[float, int, int, int], tuple[int, int]] | None = None
-    for factor in range(1, isqrt(ranks) + 1):
-        if ranks % factor:
-            continue
-        pairs = ((factor, ranks // factor), (ranks // factor, factor))
-        for nproc_x, nproc_y in pairs:
-            if e_we // nproc_x < MIN_PATCH_CELLS or e_sn // nproc_y < MIN_PATCH_CELLS:
-                continue
-            # Near-square patches first, even counts next, then WRF's smaller x factor.
-            score = (abs(e_we / nproc_x - e_sn / nproc_y), nproc_x % 2, nproc_y % 2, nproc_x)
-            if best is None or score < best[0]:
-                best = (score, (nproc_x, nproc_y))
-    if best is None:
-        raise ValueError(
-            f"{ranks} MPI ranks create a WRF patch narrower than {MIN_PATCH_CELLS} cells"
-        )
-    return best[1]
-
-
-def _decomposition(
-    e_we: int, e_sn: int, mpi_ranks: int, nproc: tuple[int, int] | None
-) -> tuple[int, int]:
-    if nproc is None:
-        return mpi_decomposition(e_we, e_sn, mpi_ranks)
-    nproc_x, nproc_y = nproc
-    if nproc_x < 1 or nproc_y < 1 or nproc_x * nproc_y != mpi_ranks:
-        raise ValueError(
-            f"AV_WRF_NPROC_X * AV_WRF_NPROC_Y ({nproc_x}x{nproc_y}) must equal {mpi_ranks}"
-        )
-    if e_we // nproc_x < MIN_PATCH_CELLS or e_sn // nproc_y < MIN_PATCH_CELLS:
-        raise ValueError("AV_WRF_NPROC_X/Y create a WRF patch narrower than 10 cells")
-    return nproc_x, nproc_y
-
-
-def _add_decomposition(
-    domains: dict[str, NamelistValue],
-    shape_we: int,
-    shape_sn: int,
-    mpi_ranks: int,
-    nproc: tuple[int, int] | None,
-) -> None:
-    if mpi_ranks <= 1:
-        return
-    nproc_x, nproc_y = _decomposition(shape_we, shape_sn, mpi_ranks, nproc)
-    domains.update(nproc_x=nproc_x, nproc_y=nproc_y)
+        raise ValueError("MPI ranks must be >= 1")
+    nproc_x = next(x for x in range(isqrt(ranks), 0, -1) if ranks % x == 0)
+    return nproc_x, ranks // nproc_x
 
 
 def _wrf_domains(
@@ -96,8 +53,6 @@ def _wrf_domains(
     metgrid_levels: int | None,
     metgrid_soil_levels: int | None,
     nested: bool,
-    mpi_ranks: int,
-    nproc: tuple[int, int] | None,
 ) -> dict[str, NamelistValue]:
     max_dom, ratio = (2, domain.parent_grid_ratio) if nested else (1, 1)
     mg_levels = forcing.metgrid_levels if metgrid_levels is None else metgrid_levels
@@ -111,11 +66,8 @@ def _wrf_domains(
     dx, dy = domain.dx_m, domain.dy_m
     start = (1, domain.parent_halo_cells + 1) if nested else 1
     # The child clock is `time_step_s`; `parent_time_step_ratio` scales the d01 clock.
-    time_step = science.time_step_s * ratio
-    if nested and time_step // ratio != science.time_step_s:
-        raise ValueError("parent_time_step_ratio must scale the child time step exactly")
     domains: dict[str, NamelistValue] = {
-        "time_step": time_step,
+        "time_step": science.time_step_s * ratio,
         "max_dom": max_dom,
         "e_we": (parent_we, e_we) if nested else e_we,
         "e_sn": (parent_sn, e_sn) if nested else e_sn,
@@ -142,8 +94,6 @@ def _wrf_domains(
         "dzstretch_u": domain.dzstretch_u,
         "max_dz": domain.max_dz_m,
     }
-    # One mesh serves every domain, so the smaller of child and parent is binding.
-    _add_decomposition(domains, min(e_we, parent_we), min(e_sn, parent_sn), mpi_ranks, nproc)
     if science.use_adaptive_time_step:
         domains.update(adaptive_domains(science, ratio))
     return domains
@@ -157,18 +107,9 @@ def compile_wrf_namelist_sections(
     metgrid_levels: int | None = None,
     metgrid_soil_levels: int | None = None,
     nested: bool = False,
-    mpi_ranks: int = 1,
-    nproc: tuple[int, int] | None = None,
 ) -> NamelistSections:
     """Compile validated profiles into WRF namelist sections (1 or 2 concentric domains)."""
-    validate_science_profile(science, domain)
-    if forcing.metgrid_levels < 20 and domain.e_vert > 40:
-        warnings.warn(
-            f"Forcing {forcing.profile_id} supplies {forcing.metgrid_levels} metgrid levels "
-            f"(< 20) for a {domain.e_vert}-level hybrid column; initialization is coarse",
-            UserWarning,
-            stacklevel=2,
-        )
+    validate_resolved_topology(domain, science, forcing.grid_spacing_deg)
     max_dom = 2 if nested else 1
     return {
         "time_control": {
@@ -184,8 +125,6 @@ def compile_wrf_namelist_sections(
             metgrid_levels=metgrid_levels,
             metgrid_soil_levels=metgrid_soil_levels,
             nested=nested,
-            mpi_ranks=mpi_ranks,
-            nproc=nproc,
         ),
         **physics_and_dynamics_sections(science, max_dom),
         "bdy_control": {
@@ -196,13 +135,9 @@ def compile_wrf_namelist_sections(
             "spec_zone": science.spec_zone,
             "relax_zone": science.relax_zone,
         },
-        # One I/O task per group overlaps history writes with the compute ranks. The
-        # launcher must supply nproc_x*nproc_y compute ranks plus these I/O tasks.
+        # Every launched rank computes; WRF writes history synchronously.
         # https://github.com/wrf-model/WRF/blob/v4.8.0/frame/module_io_quilt_old.F#L2474-L2480
-        "namelist_quilt": {
-            "nio_tasks_per_group": 1 if mpi_ranks > 1 else 0,
-            "nio_groups": 1,
-        },
+        "namelist_quilt": {"nio_tasks_per_group": 0, "nio_groups": 1},
     }
 
 
@@ -255,13 +190,9 @@ def compile_wrf_run_namelist(
     metgrid_levels: int | None = None,
     metgrid_soil_levels: int | None = None,
     for_real: bool = False,
-    nproc: tuple[int, int] | None = None,
 ) -> NamelistSections:
     """Attach RunLock UTC calendar and history_begin_h onto WRF namelist.input sections."""
     nested = nesting_active(domain, forcing.grid_spacing_deg)
-    # Integration reserves one rank for I/O quilting; real.exe disables quilting and
-    # therefore decomposes the full launched rank count.
-    compute_ranks = lock.mpi_ranks if for_real or lock.mpi_ranks <= 1 else lock.mpi_ranks - 1
     base = compile_wrf_namelist_sections(
         domain,
         science,
@@ -269,8 +200,6 @@ def compile_wrf_run_namelist(
         metgrid_levels=metgrid_levels,
         metgrid_soil_levels=metgrid_soil_levels,
         nested=nested,
-        mpi_ranks=compute_ranks,
-        nproc=None if for_real else nproc,
     )
     start_dt = parse_iso_utc(lock.wrf_init_utc)
     total_hours = lock.spinup_hours + max(lock.lead_hours)
@@ -332,7 +261,7 @@ __all__ = [
     "compile_wrf_namelist_sections",
     "compile_wrf_run_namelist",
     "forcing_bracket_duration_s",
-    "mpi_decomposition",
+    "native_decomposition",
     "render_fortran_namelist",
     "validate_science_profile",
 ]

@@ -43,6 +43,6 @@ ocean_seeds_lat_lon_deg: [[42.0, 41.0], [42.4, 48.2]]
 lai_source: modis_lai
 varsso_source: 30s
 parent_grid_ratio: 3
-parent_halo_cells: 36
+parent_halo_cells: 33
 nest_trigger_ratio: 3.5
 geog_data_path: /opt/av-wrf/geog
