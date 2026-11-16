@@ -202,8 +202,9 @@ their respective sides of the Zarr v3 contract:
 
 The producer runs one-way nests: the child receives the parent state and the
 parent never receives the child. Lateral-boundary influence is expected inside
-the relaxation zone and is not a model error. The full `3 km` product uses a
-`30`-cell parent halo; pilot and matched `1 km` comparison nests use `33` cells.
+the relaxation zone and is not a model error. The full `3 km` domain keeps a
+`30`-cell parent halo for GFS and IFS; pilot and matched `1 km` comparison
+nests use `33` cells.
 Those are deliberate per-product baselines, not a universal constant. Nested
 skill still requires observation scoring.
 
@@ -218,7 +219,7 @@ solution; GFS and ICON-EU are preferred when vertical structure matters.
 
 `cu_physics = 0` at `3 km` is a convection-permitting experiment: the grid
 resolves some deep convection and parameterizes none. The `3 km` suite also
-uses the `hybrid_opt = 2`, `etac = 0.2` baseline. The retained GFS `9 km`
+uses the `hybrid_opt = 2`, `etac = 0.2` baseline. The GFS and IFS `9 km`
 parent runs without cumulus and remains an unqualified experiment. Do not raise
 ETAC or enable a cumulus scheme to silence a warning. Verification against
 soarable-day observations remains required before claiming skill.

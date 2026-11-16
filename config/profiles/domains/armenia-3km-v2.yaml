@@ -1,5 +1,6 @@
 # Expanded Armenia 3 km domain: 222x192 mass cells, 204x174 published after trim.
-# Published footprint is 612x522 km; the 9 km parent provides lateral-boundary separation.
+# Published footprint is 612x522 km. A source coarser than nest_trigger_ratio
+# uses the 9 km parent as lateral-boundary separation.
 # Assumptions & Terrain Constraints:
 # - Spherical datum: R = 6,370,000 m (`WPS/geogrid/src/module_map_utils.F`).
 #   Physics preflight bounds the time step using Lambert map scale over the footprint.

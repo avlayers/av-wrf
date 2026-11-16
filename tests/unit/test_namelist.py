@@ -19,6 +19,7 @@ from av_wrf.core import (  # noqa: E402
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
     native_decomposition,
+    nesting_active,
     render_fortran_namelist,
     required_forcing_forecast_hours,
 )
@@ -82,8 +83,22 @@ PROFILE_TO_NAMELIST_KEY: dict[str, tuple[str, str]] = {
 }
 
 
-def _first_product() -> str:
-    return sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml"))[0]
+def _nested_product() -> str:
+    for name in sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml")):
+        bundle = load_bundle(ROOT / "config", name)
+        if nesting_active(bundle.domain, bundle.primary_source.grid_spacing_deg):
+            return name
+    raise AssertionError("expected a product whose primary source nests")
+
+
+def _three_hour_candidate() -> str:
+    for name in sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml")):
+        bundle = load_bundle(ROOT / "config", name)
+        if bundle.candidate_source.interval_seconds == 10_800 and nesting_active(
+            bundle.domain, bundle.primary_source.grid_spacing_deg
+        ):
+            return name
+    raise AssertionError("expected a nested primary with a 3-hour candidate")
 
 
 def _run_lock(bundle: LoadedBundle, mpi_ranks: int) -> RunLock:
@@ -110,8 +125,7 @@ def _run_lock(bundle: LoadedBundle, mpi_ranks: int) -> RunLock:
 
 class TestNamelist(unittest.TestCase):
     def test_exhaustive_science_profile_real_exe_fields_and_wrf_48_guards(self) -> None:
-        prod_id = sorted((ROOT / "config" / "products").glob("*.yaml"))[0].stem
-        bundle = load_bundle(ROOT / "config", prod_id)
+        bundle = load_bundle(ROOT / "config", _three_hour_candidate())
         dom, sci, src, cand = (
             bundle.domain,
             bundle.science,
@@ -250,7 +264,7 @@ class TestNamelist(unittest.TestCase):
             )
 
     def test_source_aware_compiler_derives_the_topology_it_emits(self) -> None:
-        bundle = load_bundle(ROOT / "config", _first_product())
+        bundle = load_bundle(ROOT / "config", _nested_product())
         nested = compile_wrf_namelist_sections(bundle.domain, bundle.science, bundle.primary_source)
         self.assertEqual(nested["domains"]["max_dom"], 2)
         self.assertIsInstance(nested["domains"]["e_we"], tuple)
