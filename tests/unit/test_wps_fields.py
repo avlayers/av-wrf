@@ -39,10 +39,12 @@ def _write_spechumd(
 
 
 class TestWpsSpecificHumidity(unittest.TestCase):
-    def test_floor_stays_admissible_after_real_mixing_ratio_conversion(self) -> None:
-        specific = MIN_WATER_VAPOR_KGKG
-        mixing = specific / (1.0 - specific)
-        self.assertGreaterEqual(mixing, MIN_WATER_VAPOR_KGKG)
+    def test_float32_floor_stays_inside_the_post_check(self) -> None:
+        specific = np.float32(MIN_WATER_VAPOR_KGKG)
+        self.assertGreaterEqual(float(specific), MIN_WATER_VAPOR_KGKG)
+        mixing = np.float32(specific / (np.float32(1.0) - specific))
+        self.assertFalse(float(mixing) < MIN_WATER_VAPOR_KGKG)
+        self.assertLess(float(np.nextafter(specific, np.float32(-1.0))), MIN_WATER_VAPOR_KGKG)
 
     def test_admits_the_observed_parent_cell_and_rejects_past_the_floor(self) -> None:
         with TemporaryDirectory() as tmp:
