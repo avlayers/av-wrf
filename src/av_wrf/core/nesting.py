@@ -60,7 +60,7 @@ def validate_resolved_topology(
             min_time_step_s=science.min_time_step_s * domain.parent_grid_ratio,
             max_time_step_s=science.max_time_step_s * domain.parent_grid_ratio,
         )
-        validate_science_profile(scaled, outer)
+        validate_science_profile(scaled, outer, published=False)
     source_m = source_grid_spacing_deg * M_PER_DEG_EQUATORIAL
     if source_m > domain.nest_trigger_ratio * max(outer.dx_m, outer.dy_m):
         raise ValueError("source-to-outer-domain jump needs an unsupported additional nest")

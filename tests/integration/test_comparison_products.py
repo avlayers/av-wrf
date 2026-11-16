@@ -55,9 +55,7 @@ def test_comparison_parent_clocks_and_support() -> None:
             # All comparison probes have at least one interpolation cell of published support.
             assert float(grid["x0M"]) + domain.dx_m < x < -float(grid["x0M"]) - domain.dx_m
             assert float(grid["y0M"]) + domain.dy_m < y < -float(grid["y0M"]) - domain.dy_m
-    sections = compile_wrf_namelist_sections(
-        fine.domain, fine.science, fine.primary_source, nested=True
-    )
+    sections = compile_wrf_namelist_sections(fine.domain, fine.science, fine.primary_source)
     assert sections["domains"]["time_step"] == control.science.time_step_s == 15
     assert sections["domains"]["parent_time_step_ratio"] == (1, 3)
     assert sections["domains"]["feedback"] == 0

@@ -18,6 +18,7 @@ from av_wrf.core import (  # noqa: E402
     nesting_active,
     parent_domain_shape,
     validate_resolved_topology,
+    validate_science_profile,
 )
 from av_wrf.runner import load_bundle  # noqa: E402
 
@@ -62,6 +63,24 @@ class TestNesting(unittest.TestCase):
             b = load_bundle(ROOT / "config", path.stem)
             with self.subTest(product=path.stem):
                 validate_resolved_topology(b.domain, b.science, b.primary_source.grid_spacing_deg)
+
+    def test_unpublished_parent_skips_the_child_publication_crop(self) -> None:
+        b = load_bundle(ROOT / "config", _product())
+        domain = dataclasses.replace(b.domain, bdy_trim_cells=70)
+        validate_resolved_topology(domain, b.science, b.primary_source.grid_spacing_deg)
+
+    def test_invalid_child_publication_crop_still_fails(self) -> None:
+        b = load_bundle(ROOT / "config", _product())
+        domain = dataclasses.replace(b.domain, bdy_trim_cells=120)
+        with self.assertRaisesRegex(ValueError, "Published grid dimensions"):
+            validate_resolved_topology(domain, b.science, b.primary_source.grid_spacing_deg)
+
+    def test_unpublished_parent_still_checks_its_scaled_clock(self) -> None:
+        b = load_bundle(ROOT / "config", _product())
+        parent = forcing_domain(b.domain, b.primary_source.grid_spacing_deg)
+        scaled = dataclasses.replace(b.science, time_step_s=1000)
+        with self.assertRaisesRegex(ValueError, "exceeds 6\\*dx_phys"):
+            validate_science_profile(scaled, parent, published=False)
 
     def test_parent_contains_the_child_footprint(self) -> None:
         b = load_bundle(ROOT / "config", _product())

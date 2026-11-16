@@ -19,6 +19,7 @@ from av_wrf.core import (
     render_fortran_namelist,
     resolve_cycle_window,
     validate_domain_profile,
+    validate_resolved_topology,
 )
 from av_wrf.runner.bundle import LoadedBundle, load_bundle
 from av_wrf.runner.geog import (
@@ -66,6 +67,7 @@ def run_geogrid(
 ) -> tuple[Path, str]:
     """Generate the validated static grid and return its path and SHA-256."""
     b = load_bundle(config_root, product_id) if bundle is None else bundle
+    validate_resolved_topology(b.domain, b.science, b.primary_source.grid_spacing_deg)
     validate_domain_profile(b.domain)
     geog_root = Path(b.domain.geog_data_path)
     if not geog_root.is_dir() or not any(geog_root.iterdir()):

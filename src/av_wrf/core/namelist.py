@@ -106,10 +106,10 @@ def compile_wrf_namelist_sections(
     *,
     metgrid_levels: int | None = None,
     metgrid_soil_levels: int | None = None,
-    nested: bool = False,
 ) -> NamelistSections:
     """Compile validated profiles into WRF namelist sections (1 or 2 concentric domains)."""
     validate_resolved_topology(domain, science, forcing.grid_spacing_deg)
+    nested = nesting_active(domain, forcing.grid_spacing_deg)
     max_dom = 2 if nested else 1
     return {
         "time_control": {
@@ -199,7 +199,6 @@ def compile_wrf_run_namelist(
         forcing,
         metgrid_levels=metgrid_levels,
         metgrid_soil_levels=metgrid_soil_levels,
-        nested=nested,
     )
     start_dt = parse_iso_utc(lock.wrf_init_utc)
     total_hours = lock.spinup_hours + max(lock.lead_hours)

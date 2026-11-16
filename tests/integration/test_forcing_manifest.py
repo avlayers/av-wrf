@@ -151,7 +151,7 @@ class TestForcingManifest(TestCase):
             ) as compile_sections:
                 validate_bundle(bundle, publish_origin_utc="20261112/00")
                 compile_sections.assert_called_once_with(
-                    bundle.domain, bundle.science, bundle.primary_source, nested=nested
+                    bundle.domain, bundle.science, bundle.primary_source
                 )
             if nested:
                 broken = replace(bundle.domain, parent_halo_cells=0)

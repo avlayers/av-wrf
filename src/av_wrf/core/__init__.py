@@ -42,6 +42,7 @@ from av_wrf.core.nesting import (
 from av_wrf.core.physics_namelist import (
     adaptive_domains,
     physics_and_dynamics_sections,
+    validate_science_profile,
 )
 from av_wrf.core.post import (
     NormalizedWrfFrame,
@@ -167,6 +168,7 @@ __all__ = [
     "validate_frame_columns",
     "validate_horizon_policy",
     "validate_resolved_topology",
+    "validate_science_profile",
     "validate_solver_znw",
     "validate_thermodynamic_field",
     "validate_vertical_column",

@@ -118,28 +118,31 @@ class TestNamelist(unittest.TestCase):
             bundle.primary_source,
             bundle.candidate_source,
         )
+        single_dom = dataclasses.replace(
+            dom, parent_grid_ratio=1, parent_halo_cells=0, nest_trigger_ratio=20.0
+        )
 
         all_fields = {f.name for f in dataclasses.fields(ScienceProfile)}
         self.assertEqual(
             all_fields - {"profile_id", "wrf_version", "wps_version"},
             set(PROFILE_TO_NAMELIST_KEY.keys()),
         )
-        compiled = compile_wrf_namelist_sections(dom, sci, src)
+        compiled = compile_wrf_namelist_sections(single_dom, sci, src)
         for attr, (sec, key) in PROFILE_TO_NAMELIST_KEY.items():
             self.assertEqual(compiled[sec][key], getattr(sci, attr))
         self.assertEqual(compiled["time_control"]["interval_seconds"], src.interval_seconds)
-        cand_compiled = compile_wrf_namelist_sections(dom, sci, cand)
+        cand_compiled = compile_wrf_namelist_sections(single_dom, sci, cand)
         self.assertEqual(cand_compiled["time_control"]["interval_seconds"], cand.interval_seconds)
         self.assertNotIn("prec_acc_dt", compiled["time_control"])
         self.assertIsInstance(compiled["physics"]["shinhong_scu_mixing"], bool)
         self.assertEqual(compiled["afwa"]["afwa_buoy_opt"], 1)
 
         override = compile_wrf_namelist_sections(
-            dom, sci, src, metgrid_levels=38, metgrid_soil_levels=4
+            single_dom, sci, src, metgrid_levels=38, metgrid_soil_levels=4
         )
         self.assertEqual(override["domains"]["num_metgrid_levels"], 38)
         with self.assertRaisesRegex(ValueError, "at least two"):
-            compile_wrf_namelist_sections(dom, sci, src, metgrid_soil_levels=1)
+            compile_wrf_namelist_sections(single_dom, sci, src, metgrid_soil_levels=1)
 
         for bad in (
             dataclasses.replace(sci, opt_runsrf=5),
@@ -157,10 +160,10 @@ class TestNamelist(unittest.TestCase):
             dataclasses.replace(sci, wrf_version="99"),
         ):
             with self.assertRaises(ValueError):
-                compile_wrf_namelist_sections(dom, bad, src)
+                compile_wrf_namelist_sections(single_dom, bad, src)
 
         with self.assertRaises(ValueError):
-            compile_wrf_namelist_sections(dataclasses.replace(dom, e_we=100), sci, src)
+            compile_wrf_namelist_sections(dataclasses.replace(single_dom, e_we=100), sci, src)
 
         lock = RunLock(
             product_id="wrf-synth-3km",
@@ -227,7 +230,7 @@ class TestNamelist(unittest.TestCase):
             self.assertNotIn("start_date", sections["share"])
 
     def test_wide_lambert_grid_limits_timestep_at_its_corners(self) -> None:
-        product = next((ROOT / "config" / "products").glob("*.yaml")).stem
+        product = sorted((ROOT / "config" / "products").glob("*.yaml"))[0].stem
         bundle = load_bundle(ROOT / "config", product)
         domain = dataclasses.replace(
             bundle.domain,
@@ -238,11 +241,25 @@ class TestNamelist(unittest.TestCase):
             center_lat_deg=55.0,
             std_parallel_1_deg=54.0,
             std_parallel_2_deg=56.0,
+            parent_grid_ratio=1,
+            parent_halo_cells=0,
         )
         with self.assertRaisesRegex(ValueError, "exceeds 6\\*dx_phys"):
             compile_wrf_namelist_sections(
                 domain, dataclasses.replace(bundle.science, time_step_s=71), bundle.primary_source
             )
+
+    def test_source_aware_compiler_derives_the_topology_it_emits(self) -> None:
+        bundle = load_bundle(ROOT / "config", _first_product())
+        nested = compile_wrf_namelist_sections(bundle.domain, bundle.science, bundle.primary_source)
+        self.assertEqual(nested["domains"]["max_dom"], 2)
+        self.assertIsInstance(nested["domains"]["e_we"], tuple)
+        single_domain = dataclasses.replace(
+            bundle.domain, parent_grid_ratio=1, parent_halo_cells=0, nest_trigger_ratio=20.0
+        )
+        single = compile_wrf_namelist_sections(single_domain, bundle.science, bundle.primary_source)
+        self.assertEqual(single["domains"]["max_dom"], 1)
+        self.assertIsInstance(single["domains"]["e_we"], int)
 
     def test_native_decomposition_matches_wrf_default_mesh(self) -> None:
         for ranks, mesh in {
