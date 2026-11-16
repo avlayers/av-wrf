@@ -48,11 +48,6 @@ jobs:
 
       - run: uv sync --locked
 
-      - name: Validate committed cycle
-        run: |
-          set -euo pipefail
-          uv run av-wrf recover --product "$PRODUCT" --cycle "$CYCLE" >/dev/null
-
       - name: Reconcile consumer webhook
         run: |
           set -euo pipefail

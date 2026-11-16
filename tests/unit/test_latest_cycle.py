@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
-from scripts.latest_cycle import _cron_offset_minutes, latest_cycle
+from scripts.latest_cycle import _cron_offset_minutes, latest_cycle, validate_cycle
 
-from av_wrf.contracts import parse_iso_utc
+from av_wrf.contracts import format_iso_utc, parse_iso_utc
+from av_wrf.runner import load_bundle
 
 CONFIG = Path(__file__).resolve().parents[2] / "config"
 
@@ -48,6 +51,33 @@ def test_configured_trigger_boundaries() -> None:
     assert latest_cycle(CONFIG, product, parse_iso_utc("2026-11-16T23:15:01Z")) == (
         "2026-11-17T00:00:00Z"
     )
+
+
+def test_explicit_cycle_freshness_boundaries() -> None:
+    bundles = [
+        load_bundle(CONFIG, path.stem) for path in sorted((CONFIG / "products").glob("*.yaml"))
+    ]
+    short = next(b for b in bundles if b.product.enforce_local_deadline)
+    origin = datetime(2026, 11, 17, short.product.publish_origin_hour_utc, tzinfo=UTC)
+    product_id = short.product.product_id
+    origin_iso = format_iso_utc(origin)
+    assert validate_cycle(CONFIG, product_id, origin_iso, origin) == origin_iso
+    part = f"20261117/{short.product.publish_origin_hour_utc:02d}"
+    assert validate_cycle(CONFIG, product_id, part, origin) == origin_iso
+
+    earliest = origin - timedelta(hours=short.product.spinup_hours, minutes=15)
+    with pytest.raises(ValueError, match="not live"):
+        validate_cycle(CONFIG, product_id, origin_iso, earliest - timedelta(seconds=1))
+
+    hour, minute = (int(p) for p in short.product.local_deadline_hhmm.split(":"))
+    deadline_local = origin.astimezone(ZoneInfo(short.product.region_tz)).replace(
+        hour=hour, minute=minute, second=0
+    )
+    deadline = deadline_local.astimezone(UTC)
+    if deadline <= origin:
+        deadline += timedelta(days=1)
+    with pytest.raises(ValueError, match="not live"):
+        validate_cycle(CONFIG, product_id, origin_iso, deadline + timedelta(seconds=1))
 
 
 def test_wrapped_trigger_selects_only_the_due_cycle(tmp_path: Path) -> None:

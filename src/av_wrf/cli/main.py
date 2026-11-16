@@ -186,14 +186,12 @@ def _run_recover_cmd(
     part: str,
 ) -> dict[str, object]:
     dst_store = open_store(args.store_uri or env.store_uri, s3=env.s3)
-    try:
-        receipt, latest = recover_committed_cycle(dst_store, bundle, part)
-    except FileNotFoundError:
+    result = recover_committed_cycle(dst_store, bundle, part, publish_origin_utc=orig_utc)
+    if result is None:
         if not args.probe:
-            raise
+            raise FileNotFoundError(f"Missing _ready.json for {bundle.product.model_id} {part}")
         return {"status": "absent", "cycle": part}
-    if receipt.publish_origin_utc != orig_utc:
-        raise ValueError("Committed receipt origin does not match the requested cycle")
+    receipt, latest = result
     return {
         "status": "recovered",
         "cycle": part,

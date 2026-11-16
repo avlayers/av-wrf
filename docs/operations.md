@@ -35,7 +35,9 @@ Set these repository variables and secrets before the first scheduled run:
 The forecast worker needs Linux on `aarch64`, Docker, `curl`, `tar`, `gzip`,
 `bzip2`, `jq`, `awk`, and `df`. The workflow requires at least 80 GiB free
 before downloading geography and at least 40 GiB free after extraction for the
-solver image, scratch, and store.
+solver image, scratch, and store. Each runtime container runs through
+`scripts/run-container.sh`, which stops and removes it on cancellation; a
+run-scoped cleanup step removes stragglers before artifact upload.
 
 ## Execution limits
 
@@ -58,16 +60,19 @@ more space.
 
 ## Recovery and live outcomes
 
-The preflight job runs `av-wrf recover --probe`. A committed cycle is validated
-against the published inventory and advances `latest.json` without rerunning the
-forecast. A live run requires the publish result `advanced` or `current`;
-`outside_live_window` retains the archive and fails the live outcome, and
-`newer` reports a superseded cycle.
+The preflight job runs `av-wrf recover --probe`. The forecast job repeats the
+recovery check at the start of every attempt, so a failed-job rerun does not
+recompute a committed cycle. It rechecks freshness at worker start and again
+before solve. A committed cycle is validated against the published inventory and
+advances `latest.json` without rerunning the forecast. A live run requires the
+publish result `advanced` or `current`; `outside_live_window` retains the archive
+and fails the live outcome, and `newer` reports a superseded cycle.
 
 Webhook delivery is a separate `notify` job. Use
-[`notify.yml`](../.github/workflows/notify.yml) to validate a committed cycle and
-retry delivery for an explicit `product` and `cycle` without the forecast
-worker, geography, or solver. New forecast attempts use
+[`notify.yml`](../.github/workflows/notify.yml) to retry delivery for an explicit
+`product` and `cycle` without the forecast worker, geography, or solver. The
+notification path verifies the committed receipt and diagnostics before
+dispatch and leaves `latest.json` unchanged. New forecast attempts use
 `gha-<run_id>-<run_attempt>`; a rerun recovers a committed cycle before
 recomputing it.
 

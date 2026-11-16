@@ -21,6 +21,7 @@ from av_wrf.codecs import (
 )
 from av_wrf.contracts import (
     WRF_ZARR_V3_3D_NAMES,
+    WRF_ZARR_V3_FIELDS,
     CycleWindow,
     DiagnosticsReceipt,
     ReadyReceipt,
@@ -31,6 +32,7 @@ from av_wrf.contracts import (
 from av_wrf.core import (
     model_column_spacing,
     published_grid_shape,
+    published_lambert_grid_metadata,
     validate_column_geometry,
     validate_thermodynamic_field,
 )
@@ -58,6 +60,38 @@ def validate_post_manifest(
     ):
         raise ValueError("Staged Zarr inventory differs from the expected store hierarchy")
     return pm
+
+
+def validate_ready_receipt_metadata(
+    receipt: ReadyReceipt,
+    b: LoadedBundle,
+    window: CycleWindow,
+    *,
+    require_pinned_digest: bool = True,
+) -> None:
+    """Require receipt metadata to match the canonical bundle and cycle window."""
+    expected_grid = {
+        **published_lambert_grid_metadata(b.domain),
+        "demSource": b.domain.dem_source,
+        "landuseSource": b.domain.landuse_source,
+    }
+    expected = {
+        "model_id": b.product.model_id,
+        "cycle_partition": window.cycle_partition,
+        "publish_origin_utc": window.publish_origin_utc,
+        "grid": expected_grid,
+        "exported_levels_k": b.domain.exported_levels_k,
+        "lead_hours": window.lead_hours,
+        "valid_times_utc": window.valid_times_utc,
+        "window_starts_utc": window.window_starts_utc,
+        "window_ends_utc": window.valid_times_utc,
+        "field_names": tuple(f.name for f in WRF_ZARR_V3_FIELDS),
+    }
+    for field, value in expected.items():
+        if getattr(receipt, field) != value:
+            raise ValueError(f"Published receipt {field} does not match the canonical metadata")
+    if require_pinned_digest and re.fullmatch(r"sha256:[0-9a-f]{64}", receipt.oci_digest) is None:
+        raise ValueError("Published receipt lacks a pinned OCI digest")
 
 
 def _expected_canonical_bytes(
@@ -268,6 +302,7 @@ def write_verified_payload(
 __all__ = [
     "ready_forecast_relpath",
     "validate_post_manifest",
+    "validate_ready_receipt_metadata",
     "verify_published_diagnostics",
     "verify_published_objects",
     "write_verified_payload",

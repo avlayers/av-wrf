@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from av_wrf.contracts import format_iso_utc, parse_iso_utc
-from av_wrf.core import is_cycle_live_fresh
+from av_wrf.core import is_cycle_live_fresh, parse_cycle_arg
 from av_wrf.runner import load_bundle
 
 
@@ -43,15 +43,30 @@ def latest_cycle(config_dir: Path, product_id: str, now: datetime) -> str:
     return origin_iso
 
 
+def validate_cycle(config_dir: Path, product_id: str, cycle: str, now: datetime) -> str:
+    """Return the canonical origin for a live explicit cycle, or raise."""
+    bundle = load_bundle(config_dir, product_id)
+    origin_iso, _ = parse_cycle_arg(cycle, bundle.product)
+    if not is_cycle_live_fresh(bundle.product, bundle.output, origin_iso, format_iso_utc(now)):
+        raise ValueError(f"Cycle {origin_iso} is not live at {format_iso_utc(now)}")
+    return origin_iso
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--product", required=True, help="Configured product id")
     parser.add_argument("--config-dir", type=Path, default=Path("config"))
     parser.add_argument("--now", help="ISO UTC override for testing")
+    parser.add_argument("--cycle", help="Validate this explicit cycle instead of resolving")
     args = parser.parse_args(argv)
     now = datetime.now(UTC) if args.now is None else parse_iso_utc(args.now)
     try:
-        print(latest_cycle(args.config_dir, args.product, now))
+        origin = (
+            validate_cycle(args.config_dir, args.product, args.cycle, now)
+            if args.cycle is not None
+            else latest_cycle(args.config_dir, args.product, now)
+        )
+        print(origin)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
     return 0
