@@ -23,11 +23,13 @@ from av_wrf.core.grid import (
 )
 from av_wrf.core.metrics import pressure_tendency_abs_hpa_hr
 from av_wrf.core.namelist import (
+    MIN_PATCH_CELLS,
     MYNN_CLOUD_FIELD,
     MYNN_HISTORY_FILE,
     MYNN_HISTORY_TEXT,
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
+    mpi_decomposition,
     render_fortran_namelist,
 )
 from av_wrf.core.nesting import (
@@ -102,6 +104,7 @@ __all__ = [
     "LV_VAPOR_J_KG",
     "MAX_SAFE_REFERENCE_DZ_M",
     "MIN_DOMAIN_MASS_CELLS",
+    "MIN_PATCH_CELLS",
     "MIN_SPINUP_HOURS",
     "MIN_STABLE_DZBOT_M",
     "MOIST_THETA_COEFF",
@@ -139,6 +142,7 @@ __all__ = [
     "lambert_xy_m_to_latlon",
     "latlon_to_lambert_xy_m",
     "model_column_spacing",
+    "mpi_decomposition",
     "nesting_active",
     "parent_domain_shape",
     "parse_cycle_arg",

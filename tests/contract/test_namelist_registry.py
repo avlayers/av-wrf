@@ -25,7 +25,7 @@ _SCALAR = {
     "domains": """
         time_step max_dom num_metgrid_levels num_metgrid_soil_levels use_sh_qv feedback
         smooth_option p_top_requested auto_levels_opt dzbot dzstretch_s dzstretch_u max_dz
-        use_adaptive_time_step step_to_output_time adaptation_domain
+        use_adaptive_time_step step_to_output_time adaptation_domain nproc_x nproc_y
     """,
     "physics": """
         shadlen ysu_topdown_pblmix icloud icloud_bl bucket_mm force_read_thompson
@@ -92,13 +92,14 @@ def _compiled_cases() -> Iterator[NamelistSections]:
         for source in (bundle.primary_source, bundle.candidate_source):
             for variant in variants:
                 for for_real in (False, True):
-                    yield compile_wrf_run_namelist(
-                        domain,
-                        variant,
-                        replace(lock, forcing_profile_id=source.profile_id),
-                        source,
-                        for_real=for_real,
-                    )
+                    for ranks in (1, 8):
+                        yield compile_wrf_run_namelist(
+                            domain,
+                            variant,
+                            replace(lock, forcing_profile_id=source.profile_id, mpi_ranks=ranks),
+                            source,
+                            for_real=for_real,
+                        )
 
 
 class TestNamelistRegistry(TestCase):

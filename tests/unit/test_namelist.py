@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import unittest
+import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,14 +15,16 @@ for p in (ROOT, ROOT / "src"):
 
 from av_wrf.contracts import BuildManifest, RunLock, ScienceProfile  # noqa: E402
 from av_wrf.core import (  # noqa: E402
+    MIN_PATCH_CELLS,
     compile_geogrid_namelist_sections,
     compile_wps_namelist_sections,
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
+    mpi_decomposition,
     render_fortran_namelist,
     required_forcing_forecast_hours,
 )
-from av_wrf.runner import load_bundle  # noqa: E402
+from av_wrf.runner import LoadedBundle, load_bundle  # noqa: E402
 
 PROFILE_TO_NAMELIST_KEY: dict[str, tuple[str, str]] = {
     "history_interval_min": ("time_control", "history_interval"),
@@ -79,6 +82,32 @@ PROFILE_TO_NAMELIST_KEY: dict[str, tuple[str, str]] = {
     "spec_zone": ("bdy_control", "spec_zone"),
     "relax_zone": ("bdy_control", "relax_zone"),
 }
+
+
+def _first_product() -> str:
+    return sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml"))[0]
+
+
+def _run_lock(bundle: LoadedBundle, mpi_ranks: int) -> RunLock:
+    return RunLock(
+        product_id=bundle.product.product_id,
+        model_id=bundle.product.model_id,
+        cycle_partition="20261112/00",
+        attempt_id="att-01",
+        forcing_cycle_utc="2026-11-11T18:00:00Z",
+        wrf_init_utc="2026-11-11T18:00:00Z",
+        publish_origin_utc="2026-11-12T00:00:00Z",
+        spinup_hours=6,
+        lead_hours=(1, 2, 16),
+        forcing_profile_id=bundle.primary_source.profile_id,
+        domain_profile_id=bundle.domain.profile_id,
+        science_profile_id=bundle.science.profile_id,
+        output_profile_id=bundle.output.profile_id,
+        config_sha256="abc",
+        geog_bundle_sha256="def",
+        build_manifest=BuildManifest("sha256:1", "w", "p", (), "gf", "mpi"),
+        mpi_ranks=mpi_ranks,
+    )
 
 
 class TestNamelist(unittest.TestCase):
@@ -187,7 +216,7 @@ class TestNamelist(unittest.TestCase):
         self.assertNotIn("bucket_J", wrf_txt)
         self.assertIn("shinhong_scu_mixing = .false.,", wrf_txt)
         self.assertIn("afwa_buoy_opt = 1, 1,", wrf_txt)
-        self.assertIn("&namelist_quilt\n nio_tasks_per_group = 0,\n nio_groups = 1,", wrf_txt)
+        self.assertIn("&namelist_quilt\n nio_tasks_per_group = 1,\n nio_groups = 1,", wrf_txt)
         self.assertNotIn("prec_acc_dt", wrf_txt)
 
     def test_custom_geography_resolution_precedes_default_for_each_field(self) -> None:
@@ -216,6 +245,70 @@ class TestNamelist(unittest.TestCase):
             compile_wrf_namelist_sections(
                 domain, dataclasses.replace(bundle.science, time_step_s=71), bundle.primary_source
             )
+
+    def test_mpi_decomposition_multiplies_to_ranks_and_keeps_min_patch(self) -> None:
+        for e_we, e_sn, ranks in (
+            (223, 193, 8),
+            (103, 103, 8),
+            (175, 133, 8),
+            (147, 137, 3),
+            (223, 193, 1),
+        ):
+            with self.subTest(e_we=e_we, e_sn=e_sn, ranks=ranks):
+                nproc_x, nproc_y = mpi_decomposition(e_we, e_sn, ranks)
+                self.assertEqual(nproc_x * nproc_y, ranks)
+                self.assertGreaterEqual(e_we // nproc_x, MIN_PATCH_CELLS)
+                self.assertGreaterEqual(e_sn // nproc_y, MIN_PATCH_CELLS)
+        with self.assertRaisesRegex(ValueError, "narrower than"):
+            mpi_decomposition(103, 103, 37)
+
+    def test_nproc_and_light_quilt_follow_rank_count(self) -> None:
+        bundle = load_bundle(ROOT / "config", _first_product())
+        real = compile_wrf_run_namelist(
+            bundle.domain,
+            bundle.science,
+            _run_lock(bundle, 8),
+            bundle.primary_source,
+            for_real=True,
+        )
+        integration = compile_wrf_run_namelist(
+            bundle.domain, bundle.science, _run_lock(bundle, 8), bundle.primary_source
+        )
+        real_x, real_y = real["domains"]["nproc_x"], real["domains"]["nproc_y"]
+        int_x, int_y = integration["domains"]["nproc_x"], integration["domains"]["nproc_y"]
+        assert isinstance(real_x, int) and isinstance(real_y, int)
+        assert isinstance(int_x, int) and isinstance(int_y, int)
+        self.assertEqual(real_x * real_y, 8)
+        self.assertEqual(int_x * int_y, 7)
+        self.assertEqual(integration["namelist_quilt"]["nio_tasks_per_group"], 1)
+        single = compile_wrf_run_namelist(
+            bundle.domain, bundle.science, _run_lock(bundle, 1), bundle.primary_source
+        )
+        self.assertNotIn("nproc_x", single["domains"])
+        self.assertEqual(single["namelist_quilt"]["nio_tasks_per_group"], 0)
+
+    def test_low_vertical_resolution_source_warns(self) -> None:
+        bundle = load_bundle(ROOT / "config", _first_product())
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            compile_wrf_namelist_sections(bundle.domain, bundle.science, bundle.candidate_source)
+        self.assertTrue(any("metgrid levels" in str(item.message) for item in caught))
+
+    def test_every_product_compiles_for_real_and_integration_at_two_rank_counts(self) -> None:
+        for path in sorted((ROOT / "config" / "products").glob("*.yaml")):
+            bundle = load_bundle(ROOT / "config", path.stem)
+            for ranks in (1, 8):
+                lock = _run_lock(bundle, ranks)
+                for for_real in (True, False):
+                    with self.subTest(product=path.stem, ranks=ranks, for_real=for_real):
+                        sections = compile_wrf_run_namelist(
+                            bundle.domain,
+                            bundle.science,
+                            lock,
+                            bundle.primary_source,
+                            for_real=for_real,
+                        )
+                        self.assertIn("domains", sections)
 
 
 if __name__ == "__main__":

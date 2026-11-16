@@ -42,11 +42,13 @@ terrain_elevations_m: [800.0, 4090.0, 5137.0]
 dem_source: default
 landuse_source: default
 # Stock MODIS sea labels require whole-water-body corrections before lake initialization.
+# Black Sea MODIS correction; required only when the domain includes the Black Sea.
+# Remove or update if the domain moves.
 # https://forum.mmm.ucar.edu/threads/how-to-change-land-use-category-for-black-sea.10277/
 ocean_seeds_lat_lon_deg: [[42.0, 41.0], [42.4, 48.2]]
 lai_source: modis_lai
 varsso_source: 30s
 parent_grid_ratio: 3
-parent_halo_cells: 30
+parent_halo_cells: 36
 nest_trigger_ratio: 3.5
 geog_data_path: /opt/av-wrf/geog

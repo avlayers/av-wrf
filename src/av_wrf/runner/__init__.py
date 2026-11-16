@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from av_wrf.contracts import BuildManifest
 from av_wrf.core import parse_cycle_arg
 from av_wrf.runner.acquire import acquire_forcing
 from av_wrf.runner.bundle import (
@@ -57,6 +58,7 @@ from av_wrf.runner.store import (
 __all__ = [
     "DEFAULT_DISPATCH_LEASE_S",
     "FORCING_MANIFEST_FILENAME",
+    "BuildManifest",
     "LoadedBundle",
     "LocalFileStore",
     "ObjectStore",

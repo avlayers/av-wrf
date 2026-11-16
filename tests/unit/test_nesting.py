@@ -11,13 +11,14 @@ for p in (ROOT, ROOT / "src"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from av_wrf.contracts import parse_domain_profile  # noqa: E402
 from av_wrf.core import (  # noqa: E402
     computational_latlon_bounds,
     forcing_domain,
     nesting_active,
     parent_domain_shape,
 )
-from av_wrf.runner import load_bundle  # noqa: E402
+from av_wrf.runner import load_bundle, parse_declarative_yaml  # noqa: E402
 
 
 def _product(*, pilot: bool = False) -> str:
@@ -46,6 +47,20 @@ class TestNesting(unittest.TestCase):
         self.assertLessEqual(par_s, child_s)
         self.assertGreaterEqual(par_e, child_e)
         self.assertGreaterEqual(par_n, child_n)
+
+    def test_nested_domain_profiles_share_the_standard_halo(self) -> None:
+        profiles = [
+            parse_domain_profile(parse_declarative_yaml(path))
+            for path in sorted((ROOT / "config" / "profiles" / "domains").glob("*.yaml"))
+        ]
+        nested = [profile for profile in profiles if profile.parent_grid_ratio > 1]
+        self.assertTrue(nested)
+        self.assertEqual({profile.parent_halo_cells for profile in nested}, {36})
+        for profile in nested:
+            ratio = profile.parent_grid_ratio
+            parent_we, parent_sn = parent_domain_shape(profile)
+            self.assertEqual(parent_we, (profile.e_we - 1) // ratio + 2 * 36 + 1)
+            self.assertEqual(parent_sn, (profile.e_sn - 1) // ratio + 2 * 36 + 1)
 
 
 if __name__ == "__main__":

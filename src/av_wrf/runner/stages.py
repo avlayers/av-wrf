@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 from dataclasses import replace
-from math import isqrt
 from pathlib import Path
 
 from av_wrf.contracts import (
@@ -21,6 +20,7 @@ from av_wrf.core import (
     MYNN_HISTORY_TEXT,
     compile_wps_namelist_sections,
     compile_wrf_run_namelist,
+    mpi_decomposition,
     nesting_active,
     parent_domain_shape,
     published_grid_origin_xy_m,
@@ -127,14 +127,21 @@ def verify_producer_sha256(lock: RunLock) -> None:
 
 
 def _validate_mpi_mesh(mpi_ranks: int, e_we: int, e_sn: int) -> None:
-    # WRF chooses the closest factor pair, with the smaller factor in X.
+    # WRF's RSL_LITE requires at least ten cells per patch.
     # https://github.com/wrf-model/WRF/blob/v4.8.0/external/RSL_LITE/module_dm.F
     max_x, max_y = e_we // 10, e_sn // 10
     if mpi_ranks > max_x * max_y:
         raise ValueError("RunLock mpi_ranks exceeds WRF's 10-cell minimum patch width")
-    ranks_x = next(x for x in range(isqrt(mpi_ranks), 0, -1) if mpi_ranks % x == 0)
-    if ranks_x > max_x or mpi_ranks // ranks_x > max_y:
-        raise ValueError("RunLock mpi_ranks creates a WRF patch narrower than 10 cells")
+    # real.exe decomposes every launched rank; integration reserves one rank for I/O.
+    for ranks in (mpi_ranks, mpi_ranks - 1 if mpi_ranks > 1 else None):
+        if ranks is None:
+            continue
+        try:
+            mpi_decomposition(e_we, e_sn, ranks)
+        except ValueError as exc:
+            raise ValueError(
+                "RunLock mpi_ranks creates a WRF patch narrower than 10 cells"
+            ) from exc
 
 
 def _build_run_lock(
@@ -149,9 +156,11 @@ def _build_run_lock(
     if isinstance(mpi_ranks, bool) or mpi_ranks < 1:
         raise ValueError("RunLock mpi_ranks must be >= 1")
     nested = nesting_active(b.domain, b.primary_source.grid_spacing_deg)
-    _validate_mpi_mesh(mpi_ranks, b.domain.e_we, b.domain.e_sn)
+    mesh_we, mesh_sn = b.domain.e_we, b.domain.e_sn
     if nested:
-        _validate_mpi_mesh(mpi_ranks, *parent_domain_shape(b.domain))
+        parent_we, parent_sn = parent_domain_shape(b.domain)
+        mesh_we, mesh_sn = min(mesh_we, parent_we), min(mesh_sn, parent_sn)
+    _validate_mpi_mesh(mpi_ranks, mesh_we, mesh_sn)
     if build_manifest.oci_digest != "host-dev-unpinned" and (
         not re.fullmatch(r"sha256:[0-9a-f]{64}", build_manifest.oci_digest)
         or not re.fullmatch(r"[0-9a-f]{64}", geog_bundle_sha256)
@@ -237,6 +246,7 @@ def prep_cycle_namelists(
     attempt_id: str,
     work_dir: Path,
     bundle: LoadedBundle | None = None,
+    nproc: tuple[int, int] | None = None,
 ) -> tuple[Path, Path]:
     """Verify RunLock and write WPS/real/WRF namelists, history sidecar and forcing subset."""
     b = load_bundle(config_root, product_id) if bundle is None else bundle
@@ -249,7 +259,7 @@ def prep_cycle_namelists(
         render_fortran_namelist(compile_wps_namelist_sections(b.domain, b.science, lk, source)),
         encoding="utf-8",
     )
-    integration = compile_wrf_run_namelist(b.domain, b.science, lk, source)
+    integration = compile_wrf_run_namelist(b.domain, b.science, lk, source, nproc=nproc)
     wrf_path.write_text(render_fortran_namelist(integration), encoding="utf-8")
     if "iofields_filename" in integration["time_control"]:
         (work_dir / MYNN_HISTORY_FILE).write_text(MYNN_HISTORY_TEXT, encoding="utf-8")

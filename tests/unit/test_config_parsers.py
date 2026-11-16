@@ -81,6 +81,15 @@ class TestConfigParsers(TestCase):
         self.assertEqual(science.max_time_step_s, 17)
         self.assertEqual(science.lakedepth_default_m, 50.0)
 
+    def test_science_profiles_share_the_adaptive_stepping_contract(self) -> None:
+        for path in sorted((CONFIG / "science").glob("*.yaml")):
+            science = parse_science_profile(parse_declarative_yaml(path))
+            with self.subTest(profile=path.stem):
+                self.assertTrue(science.use_adaptive_time_step)
+                self.assertEqual((science.target_cfl, science.target_hcfl), (1.2, 0.84))
+                self.assertLessEqual(science.min_time_step_s, science.time_step_s)
+                self.assertLessEqual(science.time_step_s, science.max_time_step_s)
+
     def test_explicit_options_override_defaults_and_reject_wrong_types(self) -> None:
         domain = parse_declarative_yaml(next((CONFIG / "domains").glob("*.yaml")))
         science = parse_declarative_yaml(next((CONFIG / "science").glob("*.yaml")))

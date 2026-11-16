@@ -34,7 +34,11 @@ The latest pointer also observes cycle age and remaining horizon.
 
 See the [review evidence](review-plan.md) for validated findings and benchmarks,
 and [feedback disposition](review-remediation.md#feedback-disposition-2026-11-13)
-for accepted fixes, corrected claims and deferred work.
+for accepted fixes, corrected claims and deferred work. The November 2026
+adversarial-review pass adds MPI decomposition and light quilting, a standardized
+nesting halo, consistent adaptive stepping, and low-vertical-resolution and
+physics caveats; [performance](performance.md) and [science](science.md) own the
+runtime details.
 
 | Phase | Scope & Deliverable | Decisive Gate |
 | :--- | :--- | :--- |

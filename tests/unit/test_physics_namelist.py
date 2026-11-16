@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import unittest
+import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,6 +82,15 @@ class TestPhysicsNamelist(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Adaptive steps"):
             validate_science_profile(dataclasses.replace(b.science, max_time_step_s=24), b.domain)
         self.assertEqual(b.science.bl_pbl_physics, 5)
+
+    def test_shipped_3km_profile_warns_about_gray_zone_and_steep_terrain(self) -> None:
+        b = load_bundle(ROOT / "config", _product())
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            validate_science_profile(b.science, b.domain)
+        messages = [str(item.message) for item in caught]
+        self.assertTrue(any("gray zone" in message for message in messages))
+        self.assertTrue(any("etac" in message for message in messages))
 
 
 if __name__ == "__main__":

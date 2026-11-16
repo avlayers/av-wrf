@@ -25,9 +25,9 @@ from av_wrf.runner import (
     run_wrf_cycle,
 )
 from av_wrf.runner.forcing_gfs import GFS
+from av_wrf.runner.metgrid import inspect_metgrid_dims
 from av_wrf.runner.mirrors import resolve_forcing_window
 from av_wrf.runner.solver import _hash_complete_wrfout, parse_build_manifest
-from av_wrf.runner.solver_exec import _inspect_metgrid_dims
 from av_wrf.runner.store import sha256_file
 from tests.integration import bundle_for_recipe
 
@@ -262,19 +262,19 @@ class TestSolverCompletion(TestCase):
                     times[0] = np.frombuffer(stamp.encode("ascii"), dtype="S1")
                     for field in {*GFS.metgrid_fields, "LAKE_DEPTH"}:
                         ds.createVariable(field, "f4", ("Time",))[:] = 1.0
-            with patch("av_wrf.runner.solver_exec.verify_grid_against_domain"):
-                self.assertEqual(_inspect_metgrid_dims(root, bundle, lock), (2, 4))
+            with patch("av_wrf.runner.metgrid.verify_grid_against_domain"):
+                self.assertEqual(inspect_metgrid_dims(root, bundle, lock), (2, 4))
                 for field in ("TT", "PRES", "LAKE_DEPTH"):
                     with netCDF4.Dataset(str(path), "a") as ds:
                         ds.renameVariable(field, "unavailable")
                     with self.assertRaisesRegex(ValueError, f"Missing required WPS field {field}"):
-                        _inspect_metgrid_dims(root, bundle, lock)
+                        inspect_metgrid_dims(root, bundle, lock)
                     with netCDF4.Dataset(str(path), "a") as ds:
                         ds.renameVariable("unavailable", field)
                 with netCDF4.Dataset(str(path), "a") as ds:
                     ds.setncattr("FLAG_LAKE_DEPTH", 0)
                 with self.assertRaisesRegex(ValueError, "FLAG_LAKE_DEPTH=1"):
-                    _inspect_metgrid_dims(root, bundle, lock)
+                    inspect_metgrid_dims(root, bundle, lock)
 
     def test_receipt_requires_f000_and_every_lead(self) -> None:
         origin = "2026-11-12T00:00:00Z"

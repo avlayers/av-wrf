@@ -26,7 +26,7 @@ from av_wrf.runner import (
     write_forcing_manifest,
 )
 from av_wrf.runner.forcing_recipe import ForcingRecipe
-from av_wrf.runner.solver_exec import _inspect_metgrid_dims
+from av_wrf.runner.metgrid import inspect_metgrid_dims
 from av_wrf.runner.store import sha256_file, sha256_hex
 from tests.integration import stage_sparse_config
 
@@ -266,39 +266,39 @@ class TestForcingRecipes(TestCase):
             path = self.root / f"met_em.d01.{stamp}.nc"
             _write_metgrid(path, stamp)
 
-        with patch("av_wrf.runner.solver_exec.verify_grid_against_domain"):
-            self.assertEqual(_inspect_metgrid_dims(self.root, self.bundle, self.lock), (5, 8))
+        with patch("av_wrf.runner.metgrid.verify_grid_against_domain"):
+            self.assertEqual(inspect_metgrid_dims(self.root, self.bundle, self.lock), (5, 8))
             _write_metgrid(path, stamp, moisture_layers=6)
             with self.assertRaisesRegex(ValueError, "Inconsistent met_em level dimensions"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             _write_metgrid(path, stamp, moisture_layers=0)
             with self.assertRaisesRegex(ValueError, "Invalid met_em level dimensions"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             for reported in (None, 1):
                 _write_metgrid(path, stamp, reported_soil_layers=reported)
                 with self.assertRaisesRegex(ValueError, "Invalid met_em NUM_METGRID_SOIL_LEVELS"):
-                    _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                    inspect_metgrid_dims(self.root, self.bundle, self.lock)
             _write_metgrid(path, stamp)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.delncattr("FLAG_SOIL_LEVELS")
             with self.assertRaisesRegex(ValueError, "Missing WPS FLAG_SOIL_LEVELS"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.setncattr("FLAG_SOIL_LEVELS", 1)
                 ds["SOILM"][:] = 20.0
             with self.assertRaisesRegex(ValueError, "Invalid values in WPS field SOILM"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             _write_metgrid(path, stamp)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.delncattr("FLAG_SH")
             with self.assertRaisesRegex(ValueError, "Missing WPS FLAG_SH"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.setncattr("FLAG_SH", 1)
                 ds["SPECHUMD"][:] = 1.0
             with self.assertRaisesRegex(ValueError, "Invalid values in WPS field SPECHUMD"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.renameVariable("SPECHUMD", "RH")
             with self.assertRaisesRegex(ValueError, "Missing required WPS field SPECHUMD"):
-                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+                inspect_metgrid_dims(self.root, self.bundle, self.lock)

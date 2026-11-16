@@ -1,0 +1,34 @@
+# North Armenia 1 km child: 175x133 staggered points, 156x114 published after a 9-cell trim.
+# Published origin is x0M=-77500, y0M=-56500 on the 40.6N / 44.5E Lambert frame.
+# A 3:1 parent with a 30-cell halo supplies the one-way lateral boundary.
+profile_id: armenia-1km-c1
+earth_radius_m: 6370000.0
+center_lat_deg: 40.6
+center_lon_deg: 44.5
+std_parallel_1_deg: 39.5
+std_parallel_2_deg: 41.2
+central_meridian_deg: 44.5
+dx_m: 1000.0
+dy_m: 1000.0
+e_we: 175
+e_sn: 133
+bdy_trim_cells: 9
+e_vert: 55
+exported_levels_k: 40
+p_top_pa: 5000.0
+auto_levels_opt: 2
+dzbot_m: 50.0
+dzstretch_s: 1.11
+dzstretch_u: 1.06
+max_dz_m: 850.0
+min_bl_levels_2km_agl: 17
+terrain_elevations_m: [800.0, 4090.0, 5137.0]
+dem_source: default
+landuse_source: default
+# No Black Sea water body lies inside this child footprint, so ocean seeding is omitted.
+lai_source: modis_lai
+varsso_source: 30s
+parent_grid_ratio: 3
+parent_halo_cells: 36
+nest_trigger_ratio: 3.5
+geog_data_path: /opt/av-wrf/geog
