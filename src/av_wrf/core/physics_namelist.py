@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
-
 from av_wrf.contracts import DomainProfile, ScienceProfile
 from av_wrf.core.grid import (
     computational_latlon_bounds,
@@ -94,28 +92,9 @@ def _validate_physics_compatibility(science: ScienceProfile) -> None:  # noqa: C
         raise ValueError("diff_6th_opt=2 over steep terrain requires diff_6th_slopeopt=1")
 
 
-def _warn_physics_caveats(science: ScienceProfile, domain: DomainProfile) -> None:
-    """Warn about unresolved gray-zone and steep-terrain choices without rejecting runs."""
-    if science.cu_physics == 0 and domain.dx_m > 2000:
-        warnings.warn(
-            f"cu_physics=0 at {domain.dx_m / 1000.0:.1f} km is in the convective gray zone; "
-            "skill against soarable days is unverified",
-            UserWarning,
-            stacklevel=3,
-        )
-    if science.hybrid_opt == 2 and science.etac < 0.3 and max(domain.terrain_elevations_m) > 4000:
-        warnings.warn(
-            f"hybrid_opt=2 with etac={science.etac} over terrain above 4000 m needs "
-            "verification against observations",
-            UserWarning,
-            stacklevel=3,
-        )
-
-
 def validate_science_profile(science: ScienceProfile, domain: DomainProfile) -> None:
     """Enforce domain sizing policy and WRF v4.8 physics, CFL, AFWA, and sponge invariants."""
     validate_domain_profile(domain)
-    _warn_physics_caveats(science, domain)
     if (science.wrf_version, science.wps_version) != ("4.8.0", "4.7.0"):
         raise ValueError("Supported namelist versions are WRF 4.8.0 and WPS 4.7.0")
     _validate_physics_compatibility(science)
