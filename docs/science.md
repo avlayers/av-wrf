@@ -202,26 +202,25 @@ their respective sides of the Zarr v3 contract:
 
 The producer runs one-way nests: the child receives the parent state and the
 parent never receives the child. Lateral-boundary influence is expected inside
-the relaxation zone and is not a model error. For the `3 km` product, GFS and
-IFS force a `9 km` parent around the child, while ICON-EU runs the same child
-coordinates single-domain. Every nested domain uses `parent_halo_cells = 36`
-coarse cells, so the buffer is uniform across products. Nested skill still
-requires observation scoring.
+the relaxation zone and is not a model error. The full `3 km` product uses a
+`30`-cell parent halo; pilot and matched `1 km` comparison nests use `33` cells.
+Those are deliberate per-product baselines, not a universal constant. Nested
+skill still requires observation scoring.
 
 ### Forcing vertical resolution
 
 ECMWF IFS Open Data supplies roughly `14` pressure levels, emitted as
 `metgrid_levels = 15`. That column is coarse for a `55`-level hybrid
-initialization. GFS and ICON-EU are preferred when vertical structure matters.
-Compilation logs a warning when a source declares fewer than `20` metgrid
-levels for a domain above `40` levels.
+initialization. This is inventory information, not a qualified vertical
+solution; GFS and ICON-EU are preferred when vertical structure matters.
 
 ### Gray-zone and steep-terrain caveats
 
-`cu_physics = 0` at `3 km` sits in the convective gray zone: the grid resolves
-some deep convection and parameterizes none. The `3 km` suite also uses
-`hybrid_opt = 2` with `etac = 0.2` over terrain above `4,000 m`. Both choices
-raise compile-time warnings and neither rejects the run. Verification against
+`cu_physics = 0` at `3 km` is a convection-permitting experiment: the grid
+resolves some deep convection and parameterizes none. The `3 km` suite also
+uses the `hybrid_opt = 2`, `etac = 0.2` baseline. The retained GFS `9 km`
+parent runs without cumulus and remains an unqualified experiment. Do not raise
+ETAC or enable a cumulus scheme to silence a warning. Verification against
 soarable-day observations remains required before claiming skill.
 
 ### Geography

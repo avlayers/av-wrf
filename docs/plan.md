@@ -35,10 +35,14 @@ The latest pointer also observes cycle age and remaining horizon.
 See the [review evidence](review-plan.md) for validated findings and benchmarks,
 and [feedback disposition](review-remediation.md#feedback-disposition-2026-11-13)
 for accepted fixes, corrected claims and deferred work. The November 2026
-adversarial-review pass adds MPI decomposition and light quilting, a standardized
-nesting halo, consistent adaptive stepping, and low-vertical-resolution and
-physics caveats; [performance](performance.md) and [science](science.md) own the
-runtime details.
+adversarial-review correction keeps the native WRF rank decomposition, validates
+the full resolved topology before acquisition, and restores the purposeful
+per-product halos and comparison clocks; [performance](performance.md) and
+[science](science.md) own the runtime details. Native qualification, precision
+v2, bounded acquisition, host admission, checkpoint recovery, and observation
+scorecards remain open gates. The full product treats the local briefing as
+advisory (`enforce_local_deadline: false`) and admits an 18 h origin age; short
+comparison products keep their stricter briefing deadlines.
 
 | Phase | Scope & Deliverable | Decisive Gate |
 | :--- | :--- | :--- |
