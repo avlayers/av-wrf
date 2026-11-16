@@ -13,10 +13,13 @@
   live publication or a committed-cycle recovery.
 
 The workflow targets a self-hosted worker because a personal repository cannot
-assign organization-hosted larger runners. Use a trusted self-hosted worker, or
-run the workflow from an organization-owned execution repository. Do not
-register privileged production workers with pull-request workflows; this
-workflow triggers only on a schedule and `workflow_dispatch`.
+assign organization-hosted larger runners. Keep production runner registration
+and credentials inside a private execution repository that checks out a pinned
+trusted `av-wrf` revision, or enforce organization-level workflow restrictions
+on the runner group. A custom runner label routes work; it does not isolate the
+runner from other repository workflows. This workflow triggers only on a
+schedule and `workflow_dispatch`, and production workers must not be reachable
+from pull-request workflows.
 
 Set these repository variables and secrets before the first scheduled run:
 
