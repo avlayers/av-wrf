@@ -2,8 +2,8 @@ name: daily-forecast
 
 on:
   schedule:
-    # Match the configured product's schedule_cron_utc. The resolver picks the
-    # latest cycle whose trigger has passed, so keep this at or after that trigger.
+    # Keep this at or after the configured product's schedule_cron_utc. The
+    # resolver picks the latest cycle whose trigger has passed.
     - cron: '15 23 * * *'
   workflow_dispatch:
     inputs:
@@ -24,17 +24,112 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  forecast:
-    runs-on: ${{ vars.AV_WRF_RUNNER || 'ubuntu-24.04-arm' }}
-    timeout-minutes: 420
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
+    outputs:
+      product: ${{ steps.config.outputs.product }}
+      cycle: ${{ steps.config.outputs.cycle }}
+      attempt: ${{ steps.config.outputs.attempt }}
+      runner: ${{ steps.config.outputs.runner }}
+      committed: ${{ steps.recover.outputs.committed }}
+      latest: ${{ steps.recover.outputs.latest }}
     env:
       PRODUCT: ${{ inputs.product || vars.AV_WRF_PRODUCT }}
       CYCLE_INPUT: ${{ inputs.cycle }}
+      AV_WRF_RUNNER: ${{ vars.AV_WRF_RUNNER }}
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.12
+
+      - run: uv sync --locked
+
+      - name: Validate configuration and resolve cycle
+        id: config
+        run: |
+          set -euo pipefail
+          : "${PRODUCT:?Set repository variable AV_WRF_PRODUCT or pass the product input}"
+          : "${AV_WRF_RUNNER:?Set AV_WRF_RUNNER to a trusted Linux arm64 self-hosted runner label}"
+          : "${AV_WRF_STORE_URI:?Set AV_WRF_STORE_URI to a durable s3:// destination}"
+          case "$AV_WRF_STORE_URI" in
+            s3://*) ;;
+            *) echo "::error::AV_WRF_STORE_URI must be s3:// for production runs"; exit 1 ;;
+          esac
+          if [[ -n "$CYCLE_INPUT" ]]; then
+            cycle="$CYCLE_INPUT"
+          else
+            cycle=$(uv run python -m scripts.latest_cycle --product "$PRODUCT")
+          fi
+          if ! [[ "$cycle" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+            && ! [[ "$cycle" =~ ^[0-9]{8}/[0-9]{2}$ ]]; then
+            echo "::error::Invalid cycle '$cycle'; expected ISO UTC or YYYYMMDD/HH"
+            exit 1
+          fi
+          attempt="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "product=$PRODUCT"
+            echo "cycle=$cycle"
+            echo "attempt=$attempt"
+            echo "runner=$AV_WRF_RUNNER"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "CYCLE=$cycle"
+            echo "ATTEMPT=$attempt"
+          } >> "$GITHUB_ENV"
+          printf 'Resolved %s %s as %s\n' "$PRODUCT" "$cycle" "$attempt"
+
+      - name: Recover a committed cycle before expensive work
+        id: recover
+        run: |
+          set -euo pipefail
+          json=$(uv run av-wrf recover --product "$PRODUCT" --cycle "$CYCLE" --probe)
+          status=$(printf '%s' "$json" | jq -er .status)
+          if [[ "$status" == "absent" ]]; then
+            {
+              echo "committed=false"
+              echo "latest="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          latest=$(printf '%s' "$json" | jq -er '.latest[0]')
+          if [[ "$latest" != "advanced" && "$latest" != "current" ]]; then
+            echo "::error::Committed cycle $CYCLE is not live ($latest); no forecast or notification will run"
+            exit 1
+          fi
+          {
+            echo "committed=true"
+            echo "latest=$latest"
+          } >> "$GITHUB_OUTPUT"
+
+  forecast:
+    needs: preflight
+    if: needs.preflight.outputs.committed != 'true'
+    runs-on: ${{ needs.preflight.outputs.runner }}
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      latest: ${{ steps.publish.outputs.latest }}
+    env:
+      PRODUCT: ${{ needs.preflight.outputs.product }}
+      CYCLE: ${{ needs.preflight.outputs.cycle }}
+      ATTEMPT: ${{ needs.preflight.outputs.attempt }}
       SCRATCH: ${{ github.workspace }}/scratch
-      STORE: ${{ github.workspace }}/store
       GEOG_DIR: ${{ github.workspace }}/geog
       GEOG_TAR: ${{ github.workspace }}/geog_high_res_mandatory.tar.gz
       GEOG_LAKE_TAR: ${{ github.workspace }}/lake_depth.tar.bz2
@@ -47,39 +142,46 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
-      AV_WRF_WEBHOOK_URL: ${{ secrets.AV_WRF_WEBHOOK_URL }}
-      AV_WRF_WEBHOOK_TOKEN: ${{ secrets.AV_WRF_WEBHOOK_TOKEN }}
       AV_WRF_MPI_RANKS: ${{ vars.AV_WRF_MPI_RANKS || '4' }}
       AV_WRF_NATIVE_TIMEOUT_S: ${{ vars.AV_WRF_NATIVE_TIMEOUT_S }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Validate required configuration
+      - name: Validate forecast worker
         run: |
-          : "${PRODUCT:?Set repository variable AV_WRF_PRODUCT or pass the product input}"
-          : "${AV_WRF_STORE_URI:?Set the AV_WRF_STORE_URI secret}"
+          set -euo pipefail
+          [[ "$(uname -s)" == "Linux" ]] || { echo "::error::Linux is required"; exit 1; }
+          [[ "$(uname -m)" == "aarch64" ]] || {
+            echo "::error::arm64 is required for the solver-arm64 image and BuildKit cache"
+            exit 1
+          }
+          command -v docker >/dev/null || { echo "::error::docker is required"; exit 1; }
+          docker info >/dev/null || { echo "::error::docker daemon is unavailable"; exit 1; }
+          for tool in curl tar gzip bzip2 jq awk df; do
+            command -v "$tool" >/dev/null || { echo "::error::$tool is required"; exit 1; }
+          done
           available_kb=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
-          if (( available_kb < 50 * 1024 * 1024 )); then
-            echo "::error::Need at least 50 GiB free for geography, solver image, scratch, and store."
-            echo "::error::Set AV_WRF_RUNNER to a larger runner with sufficient disk."
+          if (( available_kb < 80 * 1024 * 1024 )); then
+            echo "::error::Need at least 80 GiB free before downloading geography."
+            echo "::error::Set AV_WRF_RUNNER to a larger worker with sufficient disk."
             exit 1
           fi
-          mkdir -p "$SCRATCH" "$STORE"
+          mkdir -p "$SCRATCH"
 
       - name: Restore WPS geography archives
         id: geog-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ${{ env.GEOG_TAR }}
             ${{ env.GEOG_LAKE_TAR }}
           key: wps-geog-high-res-v1
-          restore-keys: |
-            wps-geog-high-res-
 
       - name: Download WPS geography archives
         if: steps.geog-cache.outputs.cache-hit != 'true'
         run: |
+          set -euo pipefail
           curl -fL --retry 5 --retry-delay 10 --retry-all-errors \
             -o "$GEOG_TAR.part" "$GEOG_URL"
           curl -fL --retry 5 --retry-delay 10 --retry-all-errors \
@@ -90,6 +192,7 @@ jobs:
 
       - name: Extract WPS geography
         run: |
+          set -euo pipefail
           rm -rf "$GEOG_DIR"
           mkdir -p "$GEOG_DIR"
           tar -xzf "$GEOG_TAR" -C "$GEOG_DIR" --strip-components=1
@@ -97,6 +200,25 @@ jobs:
           test -d "$GEOG_DIR/topo_gmted2010_30s"
           test -d "$GEOG_DIR/lake_depth"
           du -sh "$GEOG_DIR"
+
+      - name: Check remaining disk after geography extraction
+        run: |
+          set -euo pipefail
+          available_kb=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+          if (( available_kb < 40 * 1024 * 1024 )); then
+            echo "::error::Need at least 40 GiB free after extraction for image, scratch, and store."
+            exit 1
+          fi
+
+      - name: Save WPS geography archives
+        if: steps.geog-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ env.GEOG_TAR }}
+            ${{ env.GEOG_LAKE_TAR }}
+          key: ${{ steps.geog-cache.outputs.cache-primary-key }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
@@ -113,24 +235,15 @@ jobs:
 
       - name: Bind solver image digest
         run: |
+          set -euo pipefail
           # A --load build has no registry RepoDigest; bind its content-addressed
           # image ID as the pinned OCI identity recorded in the RunLock.
           digest=$(docker inspect --format '{{.Id}}' av-wrf:solver)
           printf 'AV_WRF_OCI_DIGEST=%s\n' "$digest" >> "$GITHUB_ENV"
 
-      - name: Resolve cycle
-        run: |
-          if [[ -n "$CYCLE_INPUT" ]]; then
-            cycle="$CYCLE_INPUT"
-          else
-            cycle=$(docker run --rm --entrypoint python av-wrf:solver \
-              -m scripts.latest_cycle --product "$PRODUCT")
-          fi
-          printf 'CYCLE=%s\n' "$cycle" >> "$GITHUB_ENV"
-          printf 'Resolved cycle: %s\n' "$cycle"
-
       - name: Build static geography
         run: |
+          set -euo pipefail
           geog_work_host="$SCRATCH/geog-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           geog_work="/scratch/geog-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$geog_work_host"
@@ -148,6 +261,7 @@ jobs:
 
       - name: Plan cycle
         run: |
+          set -euo pipefail
           docker run --rm --network none \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
@@ -155,7 +269,7 @@ jobs:
             -e AV_WRF_OCI_DIGEST="$AV_WRF_OCI_DIGEST" \
             -e AV_WRF_MPI_RANKS="$AV_WRF_MPI_RANKS" \
             -v "$SCRATCH:/scratch" \
-            av-wrf:solver plan --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+            av-wrf:solver plan --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT" \
               --geog-file "$GEOG_FILE" \
             | tee "$SCRATCH/plan.out"
           json=$(grep -E '^\{.*\}$' "$SCRATCH/plan.out" | tail -n 1)
@@ -164,19 +278,21 @@ jobs:
 
       - name: Acquire forcing
         run: |
+          set -euo pipefail
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
             -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
             -e AV_WRF_MPI_RANKS="$AV_WRF_MPI_RANKS" \
             -v "$SCRATCH:/scratch" \
-            av-wrf:solver acquire --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+            av-wrf:solver acquire --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT" \
               --grib-dir /scratch/grib --cache /scratch/icon-cache --workers 8 \
             | tee "$SCRATCH/acquire.out"
           grep -E '^\{.*\}$' "$SCRATCH/acquire.out" | tail -n 1 | jq -e .
 
       - name: Solve
         run: |
+          set -euo pipefail
           docker run --rm --network none \
             --user "$(id -u):$(id -g)" \
             --shm-size=2g \
@@ -186,26 +302,29 @@ jobs:
             -e AV_WRF_MPI_RANKS="$AV_WRF_MPI_RANKS" \
             -e AV_WRF_NATIVE_TIMEOUT_S="$AV_WRF_NATIVE_TIMEOUT_S" \
             -v "$SCRATCH:/scratch" \
-            av-wrf:solver solve --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+            av-wrf:solver solve --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT" \
               --work-dir /scratch/solve --grib-dir /scratch/grib --geog-file "$GEOG_FILE" \
             | tee "$SCRATCH/solve.out"
           grep -E '^\{.*\}$' "$SCRATCH/solve.out" | tail -n 1 | jq -e .
 
       - name: Stage Zarr frames
         run: |
+          set -euo pipefail
           cycle_dir=${CYCLE_PARTITION//\//_}
           docker run --rm --network none \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
             -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
             -v "$SCRATCH:/scratch" \
-            av-wrf:solver post --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
-              --wrfout-dir "/scratch/solve/$PRODUCT/$cycle_dir/att-01" \
+            av-wrf:solver post --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT" \
+              --wrfout-dir "/scratch/solve/$PRODUCT/$cycle_dir/$ATTEMPT" \
             | tee "$SCRATCH/post.out"
           grep -E '^\{.*\}$' "$SCRATCH/post.out" | tail -n 1 | jq -e .
 
       - name: Publish cycle
+        id: publish
         run: |
+          set -euo pipefail
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
@@ -217,30 +336,22 @@ jobs:
             -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
             -e AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
             -v "$SCRATCH:/scratch" \
-            -v "$STORE:/store" \
-            av-wrf:solver publish --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+            av-wrf:solver publish --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT" \
             | tee "$SCRATCH/publish.out"
-          grep -E '^\{.*\}$' "$SCRATCH/publish.out" | tail -n 1 | jq -e .
-
-      - name: Dispatch consumer webhook
-        if: env.AV_WRF_WEBHOOK_URL != ''
-        run: |
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e AV_WRF_STORE_URI="$AV_WRF_STORE_URI" \
-            -e AV_WRF_S3_ENDPOINT="$AV_WRF_S3_ENDPOINT" \
-            -e AWS_REGION="$AWS_REGION" \
-            -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
-            -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
-            -e AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
-            -e AV_WRF_WEBHOOK_URL="$AV_WRF_WEBHOOK_URL" \
-            -e AV_WRF_WEBHOOK_TOKEN="$AV_WRF_WEBHOOK_TOKEN" \
-            -v "$SCRATCH:/scratch" \
-            -v "$STORE:/store" \
-            av-wrf:solver reconcile --product "$PRODUCT" --cycle "$CYCLE" \
-            | tee "$SCRATCH/reconcile.out"
-          grep -E '^\{.*\}$' "$SCRATCH/reconcile.out" | tail -n 1 | jq -e .
+          json=$(grep -E '^\{.*\}$' "$SCRATCH/publish.out" | tail -n 1)
+          if ! printf '%s' "$json" | jq -e '
+            .status == "published"
+            and .destinations == 1
+            and (.latest | type == "array")
+            and (.latest | length == 1)
+            and (.latest[0] == "advanced" or .latest[0] == "current")
+          ' >/dev/null; then
+            outcome=$(printf '%s' "$json" | jq -r '.latest // "missing"' 2>/dev/null || echo missing)
+            echo "::error::Publication did not advance or confirm the live pointer: $outcome"
+            exit 1
+          fi
+          latest=$(printf '%s' "$json" | jq -er '.latest[0]')
+          printf 'LATEST=%s\n' "$latest" >> "$GITHUB_OUTPUT"
 
       - name: Upload forecast logs and receipts
         if: always()
@@ -253,7 +364,49 @@ jobs:
             ${{ env.SCRATCH }}/**/rsl.*
             ${{ env.SCRATCH }}/**/namelist.*
             ${{ env.SCRATCH }}/**/*.json
-            ${{ env.STORE }}/**/_ready.json
-            ${{ env.STORE }}/**/_diagnostics.json
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
+
+  notify:
+    needs: [preflight, forecast]
+    if: |
+      always()
+      && needs.preflight.outputs.product != ''
+      && needs.preflight.outputs.cycle != ''
+      && (needs.forecast.result == 'success' || needs.preflight.outputs.committed == 'true')
+      && (needs.forecast.outputs.latest == 'advanced' || needs.forecast.outputs.latest == 'current'
+          || needs.preflight.outputs.latest == 'advanced' || needs.preflight.outputs.latest == 'current')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRODUCT: ${{ needs.preflight.outputs.product }}
+      CYCLE: ${{ needs.preflight.outputs.cycle }}
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      AV_WRF_WEBHOOK_URL: ${{ secrets.AV_WRF_WEBHOOK_URL }}
+      AV_WRF_WEBHOOK_TOKEN: ${{ secrets.AV_WRF_WEBHOOK_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.12
+
+      - run: uv sync --locked
+
+      - name: Reconcile consumer webhook
+        if: env.AV_WRF_WEBHOOK_URL != ''
+        run: |
+          set -euo pipefail
+          json=$(uv run av-wrf reconcile --product "$PRODUCT" --cycle "$CYCLE")
+          printf '%s' "$json" | jq -e '.status == "reconciled"'

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from av_wrf.cli.env import RuntimeEnv, load_runtime_env
+from av_wrf.cli.parsers import _CYCLE_CMDS, build_parser
 from av_wrf.runner import (
     BuildManifest,
     LoadedBundle,
@@ -28,101 +29,12 @@ from av_wrf.runner import (
     prep_cycle_namelists,
     publish_cycle_receipt,
     reconcile_dispatch,
+    recover_committed_cycle,
     run_geogrid,
     run_wrf_cycle,
     sha256_file,
     write_forcing_manifest,
 )
-
-CLI_COMMANDS: tuple[tuple[str, str], ...] = (
-    ("check", "Validate configured product(s), vertical stretch, namelist, and Zarr v3."),
-    ("plan", "Resolve cycle timestamps and persist an immutable run.lock.json."),
-    ("geog", "Build and validate static geography for the active domains."),
-    ("prep", "Write Fortran namelist.wps + namelist.input and forcing_subset.json recipe."),
-    ("acquire", "Acquire and seal the locked forcing inventory."),
-    ("forcing-manifest", "Verify local GRIB2 inputs and record the forcing inventory."),
-    ("solve", "Execute WPS ungrib/metgrid + MPI real/wrf and bind solver_receipt.json."),
-    ("post", "Stage wrfout frames into attempt-scoped sharded wrf-zarr-v3 arrays."),
-    ("publish", "Verify full RunLock horizon, promote Zarr store, and CAS latest.json."),
-    ("reconcile", "Dispatch pending _ready.json webhook idempotently (fail closed)."),
-)
-
-_CYCLE_CMDS = {name for name, _ in CLI_COMMANDS if name not in {"check", "geog"}}
-
-
-def _add_subcommand_flags(cmd_name: str, cmd: argparse.ArgumentParser) -> None:
-    cmd.add_argument(
-        "--product",
-        required=(cmd_name != "check"),
-        help="Configured product ID under <config-dir>/products/ (omit on check for all)",
-    )
-    cmd.add_argument("--config-dir", default="config", help="Declarative config directory")
-    if cmd_name in _CYCLE_CMDS:
-        cmd.add_argument("--cycle", required=True, help="Publish origin ISO UTC or YYYYMMDD/HH")
-        attempt = None if cmd_name == "reconcile" else "att-01"
-        cmd.add_argument("--attempt", default=attempt, help="Attempt identifier")
-    if cmd_name == "plan":
-        cmd.add_argument(
-            "--allow-unpinned-dev",
-            action="store_true",
-            help="Permit local host dry-run when solver build-manifest.json is absent",
-        )
-        cmd.add_argument("--geog-file", type=Path, help="Bind the geography file or bundle SHA-256")
-    if cmd_name in {"geog", "prep"}:
-        default_dir = "work/geog" if cmd_name == "geog" else "work/prep"
-        dir_help = "New geogrid directory" if cmd_name == "geog" else "Target directory"
-        cmd.add_argument("--work-dir", default=default_dir, help=dir_help)
-    if cmd_name in {"acquire", "forcing-manifest", "solve"}:
-        cmd.add_argument("--grib-dir", type=Path, required=True, help="Staged forcing directory")
-    if cmd_name == "forcing-manifest":
-        cmd.add_argument("--acquisition-inventory", type=Path, help="Source hash inventory path")
-        cmd.add_argument(
-            "--file",
-            action="append",
-            required=True,
-            metavar="HOUR=FILENAME",
-            help="Forcing forecast hour and filename within --grib-dir (repeatable)",
-        )
-    if cmd_name == "solve":
-        cmd.add_argument("--work-dir", default="work/solve", help="Attempt scratch root")
-        cmd.add_argument("--geog-file", type=Path, required=True, help="Locked geography path")
-    if cmd_name == "post":
-        source = cmd.add_mutually_exclusive_group(required=True)
-        source.add_argument("--wrfout-dir", type=Path, help="Active-domain WRF output directory")
-        source.add_argument("--synthetic", action="store_true", help="Stage full synthetic horizon")
-    if cmd_name == "publish":
-        cmd.add_argument(
-            "--allow-synthetic-fixture",
-            action="store_true",
-            help="Publish synthetic run into isolated fixtures/synthetic/ namespace",
-        )
-        cmd.add_argument(
-            "--prune-stage",
-            action="store_true",
-            help="Delete staged attempt prefix after promotion succeeds",
-        )
-        cmd.add_argument(
-            "--store-uri",
-            action="append",
-            help="Target destination store URI(s) (repeatable; defaults to AV_WRF_STORE_URI)",
-        )
-    if cmd_name == "reconcile":
-        cmd.add_argument("--store-uri", default=None, help="Destination store URI")
-        cmd.add_argument("--webhook-url", default="", help="Consumer webhook URL override")
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="av-wrf")
-    sub = parser.add_subparsers(dest="command", required=True)
-    for cmd_name, help_text in CLI_COMMANDS:
-        cmd = sub.add_parser(cmd_name, help=help_text)
-        _add_subcommand_flags(cmd_name, cmd)
-        if cmd_name == "acquire":
-            cmd.add_argument("--plan", type=Path, help="Verify a prep forcing_subset.json")
-            cmd.add_argument("--cache", type=Path, help="ICON source object cache")
-            cmd.add_argument("--workers", type=int, default=8, help="Concurrent downloads")
-            cmd.add_argument("--gfs-regional-filter", action="store_true", help="Use NOAA cutout")
-    return parser
 
 
 def _build_manifest(env: RuntimeEnv, *, allow_unpinned_dev: bool) -> BuildManifest:
@@ -266,25 +178,61 @@ def _run_publish_cmd(
     }
 
 
+def _run_recover_cmd(
+    args: argparse.Namespace,
+    env: RuntimeEnv,
+    bundle: LoadedBundle,
+    orig_utc: str,
+    part: str,
+) -> dict[str, object]:
+    dst_store = open_store(args.store_uri or env.store_uri, s3=env.s3)
+    try:
+        receipt, latest = recover_committed_cycle(dst_store, bundle, part)
+    except FileNotFoundError:
+        if not args.probe:
+            raise
+        return {"status": "absent", "cycle": part}
+    if receipt.publish_origin_utc != orig_utc:
+        raise ValueError("Committed receipt origin does not match the requested cycle")
+    return {
+        "status": "recovered",
+        "cycle": part,
+        "attempt": receipt.attempt_id,
+        "latest": [latest],
+    }
+
+
+def _run_reconcile_cmd(
+    args: argparse.Namespace,
+    env: RuntimeEnv,
+    bundle: LoadedBundle,
+    orig_utc: str,
+    part: str,
+) -> dict[str, object]:
+    dst_store = open_store(args.store_uri or env.store_uri, s3=env.s3)
+    rec = load_ready_receipt(dst_store, bundle.product.model_id, part)
+    if args.attempt is not None and rec.attempt_id != args.attempt:
+        raise ValueError(f"Expected published attempt {args.attempt!r}, got {rec.attempt_id!r}")
+    if rec.publish_origin_utc != orig_utc:
+        raise ValueError("Published receipt origin does not match the requested cycle")
+    target_url = str(args.webhook_url).strip() or env.webhook_url
+    sent = reconcile_dispatch(
+        dst_store,
+        rec,
+        lambda r: post_webhook_json(target_url, r, bearer_token=env.webhook_token),
+        destination_id=target_url,
+    )
+    return {"status": "reconciled", "dispatched_now": sent, "cycle": part}
+
+
 def _dispatch_cycle_cmd(args: argparse.Namespace, env: RuntimeEnv, cfg_dir: Path) -> int:
     prod_id, att = str(args.product), str(args.attempt)
     bundle = load_bundle(cfg_dir, prod_id)
     orig_utc, part = parse_cycle_arg(str(args.cycle), bundle.product)
-    if args.command == "reconcile":
-        dst_store = open_store(args.store_uri or env.store_uri, s3=env.s3)
-        rec = load_ready_receipt(dst_store, bundle.product.model_id, part)
-        if args.attempt is not None and rec.attempt_id != args.attempt:
-            raise ValueError(f"Expected published attempt {args.attempt!r}, got {rec.attempt_id!r}")
-        if rec.publish_origin_utc != orig_utc:
-            raise ValueError("Published receipt origin does not match the requested cycle")
-        target_url = str(args.webhook_url).strip() or env.webhook_url
-        sent = reconcile_dispatch(
-            dst_store,
-            rec,
-            lambda r: post_webhook_json(target_url, r, bearer_token=env.webhook_token),
-            destination_id=target_url,
-        )
-        out = {"status": "reconciled", "dispatched_now": sent, "cycle": part}
+    if args.command == "recover":
+        out = _run_recover_cmd(args, env, bundle, orig_utc, part)
+    elif args.command == "reconcile":
+        out = _run_reconcile_cmd(args, env, bundle, orig_utc, part)
     else:
         stg_store = open_store(env.stage_store_uri, s3=env.s3)
         if args.command in {"plan", "prep", "solve"}:
@@ -325,9 +273,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     env = load_runtime_env()
-    if args.command in _CYCLE_CMDS and args.command != "reconcile" and not env.stage_store_uri:
+    if (
+        args.command in _CYCLE_CMDS
+        and args.command not in {"reconcile", "recover"}
+        and not env.stage_store_uri
+    ):
         parser.error("Set AV_WRF_STAGE_STORE_URI or AV_WRF_STORE_URI for cycle staging")
-    if args.command in {"publish", "reconcile"} and not (args.store_uri or env.store_uri):
+    if args.command in {"publish", "reconcile", "recover"} and not (
+        args.store_uri or env.store_uri
+    ):
         parser.error("Set AV_WRF_STORE_URI or pass --store-uri for the destination")
     if args.command == "reconcile" and not (args.webhook_url.strip() or env.webhook_url):
         parser.error("Set AV_WRF_WEBHOOK_URL or pass --webhook-url for dispatch")

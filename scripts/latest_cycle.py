@@ -17,6 +17,8 @@ def _cron_offset_minutes(cron: str, forcing_hour: int) -> int:
     if len(parts) != 5 or parts[2:] != ["*", "*", "*"]:
         raise ValueError(f"Expected a daily UTC cron expression, got {cron!r}")
     minute, hour = int(parts[0]), int(parts[1])
+    if not (0 <= minute < 60 and 0 <= hour < 24):
+        raise ValueError(f"Cron minute/hour out of range in {cron!r}")
     return (hour * 60 + minute - forcing_hour * 60) % (24 * 60)
 
 
@@ -28,7 +30,7 @@ def latest_cycle(config_dir: Path, product_id: str, now: datetime) -> str:
         minutes=_cron_offset_minutes(product.schedule_cron_utc, product.forcing_cycle_hour_utc)
     )
     forcing = now.replace(hour=product.forcing_cycle_hour_utc, minute=0, second=0, microsecond=0)
-    if forcing + trigger > now:
+    while forcing + trigger > now:
         forcing -= timedelta(days=1)
     origin_gap = (product.publish_origin_hour_utc - product.forcing_cycle_hour_utc) % 24
     origin = forcing + timedelta(hours=origin_gap)

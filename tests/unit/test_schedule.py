@@ -7,6 +7,7 @@ import sys
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 for p in (ROOT, ROOT / "src"):
@@ -187,6 +188,34 @@ class TestSchedule(unittest.TestCase):
             after = f"{date}T{deadline_hour}:30:01Z"
             self.assertTrue(is_cycle_live_fresh(product, b.output, origin, deadline))
             self.assertFalse(is_cycle_live_fresh(product, b.output, origin, after))
+
+    def test_short_product_briefing_cutoff_is_exact(self) -> None:
+        cfg = ROOT / "config"
+        bundles = [
+            load_bundle(cfg, path.stem) for path in sorted((cfg / "products").glob("*.yaml"))
+        ]
+        short = next(b for b in bundles if b.product.enforce_local_deadline)
+        origin = datetime(2026, 11, 17, short.product.publish_origin_hour_utc, tzinfo=UTC)
+        hour, minute = (int(part) for part in short.product.local_deadline_hhmm.split(":"))
+        deadline_local = origin.astimezone(ZoneInfo(short.product.region_tz)).replace(
+            hour=hour, minute=minute, second=0
+        )
+        deadline = deadline_local.astimezone(UTC)
+        if deadline <= origin:
+            deadline += timedelta(days=1)
+        self.assertTrue(
+            is_cycle_live_fresh(
+                short.product, short.output, origin.isoformat(), deadline.isoformat()
+            )
+        )
+        self.assertFalse(
+            is_cycle_live_fresh(
+                short.product,
+                short.output,
+                origin.isoformat(),
+                (deadline + timedelta(seconds=1)).isoformat(),
+            )
+        )
 
     def test_config_check_catches_a_summer_only_briefing_failure(self) -> None:
         cfg = ROOT / "config"

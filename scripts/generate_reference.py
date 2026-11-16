@@ -92,7 +92,7 @@ def render_reference_markdown(repo: Path) -> str:
         "",
         "## CLI Subcommands",
         "",
-        "Source: [`src/av_wrf/cli/main.py`](../src/av_wrf/cli/main.py).",
+        "Source: [`src/av_wrf/cli/parsers.py`](../src/av_wrf/cli/parsers.py).",
         "",
         *(f"- `av-wrf {cmd}`: {desc}" for cmd, desc in CLI_COMMANDS),
         *_render_products_section(repo),
