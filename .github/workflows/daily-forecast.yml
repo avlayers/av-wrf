@@ -1,0 +1,259 @@
+name: daily-forecast
+
+on:
+  schedule:
+    # Match the configured product's schedule_cron_utc. The resolver picks the
+    # latest cycle whose trigger has passed, so keep this at or after that trigger.
+    - cron: '15 23 * * *'
+  workflow_dispatch:
+    inputs:
+      cycle:
+        description: 'Publish origin ISO UTC or YYYYMMDD/HH (default: latest due cycle)'
+        required: false
+        type: string
+      product:
+        description: 'Product id under config/products (default: AV_WRF_PRODUCT)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-forecast
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ${{ vars.AV_WRF_RUNNER || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 420
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRODUCT: ${{ inputs.product || vars.AV_WRF_PRODUCT }}
+      CYCLE_INPUT: ${{ inputs.cycle }}
+      SCRATCH: ${{ github.workspace }}/scratch
+      STORE: ${{ github.workspace }}/store
+      GEOG_DIR: ${{ github.workspace }}/geog
+      GEOG_TAR: ${{ github.workspace }}/geog_high_res_mandatory.tar.gz
+      GEOG_LAKE_TAR: ${{ github.workspace }}/lake_depth.tar.bz2
+      GEOG_URL: https://www2.mmm.ucar.edu/wrf/src/wps_files/geog_high_res_mandatory.tar.gz
+      GEOG_LAKE_URL: https://www2.mmm.ucar.edu/wrf/src/wps_files/lake_depth.tar.bz2
+      AV_WRF_STAGE_STORE_URI: file:///scratch/stage-store
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      AV_WRF_WEBHOOK_URL: ${{ secrets.AV_WRF_WEBHOOK_URL }}
+      AV_WRF_WEBHOOK_TOKEN: ${{ secrets.AV_WRF_WEBHOOK_TOKEN }}
+      AV_WRF_MPI_RANKS: ${{ vars.AV_WRF_MPI_RANKS || '4' }}
+      AV_WRF_NATIVE_TIMEOUT_S: ${{ vars.AV_WRF_NATIVE_TIMEOUT_S }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate required configuration
+        run: |
+          : "${PRODUCT:?Set repository variable AV_WRF_PRODUCT or pass the product input}"
+          : "${AV_WRF_STORE_URI:?Set the AV_WRF_STORE_URI secret}"
+          available_kb=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+          if (( available_kb < 50 * 1024 * 1024 )); then
+            echo "::error::Need at least 50 GiB free for geography, solver image, scratch, and store."
+            echo "::error::Set AV_WRF_RUNNER to a larger runner with sufficient disk."
+            exit 1
+          fi
+          mkdir -p "$SCRATCH" "$STORE"
+
+      - name: Restore WPS geography archives
+        id: geog-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ env.GEOG_TAR }}
+            ${{ env.GEOG_LAKE_TAR }}
+          key: wps-geog-high-res-v1
+          restore-keys: |
+            wps-geog-high-res-
+
+      - name: Download WPS geography archives
+        if: steps.geog-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fL --retry 5 --retry-delay 10 --retry-all-errors \
+            -o "$GEOG_TAR.part" "$GEOG_URL"
+          curl -fL --retry 5 --retry-delay 10 --retry-all-errors \
+            -o "$GEOG_LAKE_TAR.part" "$GEOG_LAKE_URL"
+          mv "$GEOG_TAR.part" "$GEOG_TAR"
+          mv "$GEOG_LAKE_TAR.part" "$GEOG_LAKE_TAR"
+          ls -lh "$GEOG_TAR" "$GEOG_LAKE_TAR"
+
+      - name: Extract WPS geography
+        run: |
+          rm -rf "$GEOG_DIR"
+          mkdir -p "$GEOG_DIR"
+          tar -xzf "$GEOG_TAR" -C "$GEOG_DIR" --strip-components=1
+          tar -xjf "$GEOG_LAKE_TAR" -C "$GEOG_DIR"
+          test -d "$GEOG_DIR/topo_gmted2010_30s"
+          test -d "$GEOG_DIR/lake_depth"
+          du -sh "$GEOG_DIR"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: solver
+          build-args: JOBS=2
+          load: true
+          tags: av-wrf:solver
+          cache-from: type=gha,scope=solver-arm64
+          cache-to: type=gha,scope=solver-arm64,mode=max
+
+      - name: Bind solver image digest
+        run: |
+          # A --load build has no registry RepoDigest; bind its content-addressed
+          # image ID as the pinned OCI identity recorded in the RunLock.
+          digest=$(docker inspect --format '{{.Id}}' av-wrf:solver)
+          printf 'AV_WRF_OCI_DIGEST=%s\n' "$digest" >> "$GITHUB_ENV"
+
+      - name: Resolve cycle
+        run: |
+          if [[ -n "$CYCLE_INPUT" ]]; then
+            cycle="$CYCLE_INPUT"
+          else
+            cycle=$(docker run --rm --entrypoint python av-wrf:solver \
+              -m scripts.latest_cycle --product "$PRODUCT")
+          fi
+          printf 'CYCLE=%s\n' "$cycle" >> "$GITHUB_ENV"
+          printf 'Resolved cycle: %s\n' "$cycle"
+
+      - name: Build static geography
+        run: |
+          geog_work_host="$SCRATCH/geog-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          geog_work="/scratch/geog-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$geog_work_host"
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e AV_WRF_NATIVE_TIMEOUT_S="$AV_WRF_NATIVE_TIMEOUT_S" \
+            -v "$GEOG_DIR:/opt/av-wrf/geog:ro" \
+            -v "$SCRATCH:/scratch" \
+            av-wrf:solver geog --product "$PRODUCT" --work-dir "$geog_work" \
+            | tee "$SCRATCH/geog.out"
+          json=$(grep -E '^\{.*\}$' "$SCRATCH/geog.out" | tail -n 1)
+          geo_em=$(printf '%s' "$json" | jq -er .geo_em)
+          printf 'GEOG_FILE=%s\n' "$geo_em" >> "$GITHUB_ENV"
+
+      - name: Plan cycle
+        run: |
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
+            -e AV_WRF_OCI_DIGEST="$AV_WRF_OCI_DIGEST" \
+            -e AV_WRF_MPI_RANKS="$AV_WRF_MPI_RANKS" \
+            -v "$SCRATCH:/scratch" \
+            av-wrf:solver plan --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+              --geog-file "$GEOG_FILE" \
+            | tee "$SCRATCH/plan.out"
+          json=$(grep -E '^\{.*\}$' "$SCRATCH/plan.out" | tail -n 1)
+          cycle_partition=$(printf '%s' "$json" | jq -er .cycle_partition)
+          printf 'CYCLE_PARTITION=%s\n' "$cycle_partition" >> "$GITHUB_ENV"
+
+      - name: Acquire forcing
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
+            -e AV_WRF_MPI_RANKS="$AV_WRF_MPI_RANKS" \
+            -v "$SCRATCH:/scratch" \
+            av-wrf:solver acquire --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+              --grib-dir /scratch/grib --cache /scratch/icon-cache --workers 8 \
+            | tee "$SCRATCH/acquire.out"
+          grep -E '^\{.*\}$' "$SCRATCH/acquire.out" | tail -n 1 | jq -e .
+
+      - name: Solve
+        run: |
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            --shm-size=2g \
+            -e HOME=/tmp \
+            -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
+            -e AV_WRF_OCI_DIGEST="$AV_WRF_OCI_DIGEST" \
+            -e AV_WRF_MPI_RANKS="$AV_WRF_MPI_RANKS" \
+            -e AV_WRF_NATIVE_TIMEOUT_S="$AV_WRF_NATIVE_TIMEOUT_S" \
+            -v "$SCRATCH:/scratch" \
+            av-wrf:solver solve --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+              --work-dir /scratch/solve --grib-dir /scratch/grib --geog-file "$GEOG_FILE" \
+            | tee "$SCRATCH/solve.out"
+          grep -E '^\{.*\}$' "$SCRATCH/solve.out" | tail -n 1 | jq -e .
+
+      - name: Stage Zarr frames
+        run: |
+          cycle_dir=${CYCLE_PARTITION//\//_}
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
+            -v "$SCRATCH:/scratch" \
+            av-wrf:solver post --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+              --wrfout-dir "/scratch/solve/$PRODUCT/$cycle_dir/att-01" \
+            | tee "$SCRATCH/post.out"
+          grep -E '^\{.*\}$' "$SCRATCH/post.out" | tail -n 1 | jq -e .
+
+      - name: Publish cycle
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e AV_WRF_STAGE_STORE_URI="$AV_WRF_STAGE_STORE_URI" \
+            -e AV_WRF_STORE_URI="$AV_WRF_STORE_URI" \
+            -e AV_WRF_S3_ENDPOINT="$AV_WRF_S3_ENDPOINT" \
+            -e AWS_REGION="$AWS_REGION" \
+            -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+            -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+            -e AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
+            -v "$SCRATCH:/scratch" \
+            -v "$STORE:/store" \
+            av-wrf:solver publish --product "$PRODUCT" --cycle "$CYCLE" --attempt att-01 \
+            | tee "$SCRATCH/publish.out"
+          grep -E '^\{.*\}$' "$SCRATCH/publish.out" | tail -n 1 | jq -e .
+
+      - name: Dispatch consumer webhook
+        if: env.AV_WRF_WEBHOOK_URL != ''
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e AV_WRF_STORE_URI="$AV_WRF_STORE_URI" \
+            -e AV_WRF_S3_ENDPOINT="$AV_WRF_S3_ENDPOINT" \
+            -e AWS_REGION="$AWS_REGION" \
+            -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+            -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+            -e AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
+            -e AV_WRF_WEBHOOK_URL="$AV_WRF_WEBHOOK_URL" \
+            -e AV_WRF_WEBHOOK_TOKEN="$AV_WRF_WEBHOOK_TOKEN" \
+            -v "$SCRATCH:/scratch" \
+            -v "$STORE:/store" \
+            av-wrf:solver reconcile --product "$PRODUCT" --cycle "$CYCLE" \
+            | tee "$SCRATCH/reconcile.out"
+          grep -E '^\{.*\}$' "$SCRATCH/reconcile.out" | tail -n 1 | jq -e .
+
+      - name: Upload forecast logs and receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: forecast-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SCRATCH }}/*.out
+            ${{ env.SCRATCH }}/**/*.log
+            ${{ env.SCRATCH }}/**/rsl.*
+            ${{ env.SCRATCH }}/**/namelist.*
+            ${{ env.SCRATCH }}/**/*.json
+            ${{ env.STORE }}/**/_ready.json
+            ${{ env.STORE }}/**/_diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 7
