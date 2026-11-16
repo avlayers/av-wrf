@@ -121,12 +121,12 @@ def validate_lake_initialization(geog_path: Path, wrfinput_path: Path) -> None:
         # https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
         if not np.array_equal(wrf["LAKEMASK"][0], expected):
             raise ValueError(f"{wrfinput_path}: LAKEMASK differs from sealed geography")
-        ocean = landuse == geo.ISWATER
+        water = (landuse == geo.ISWATER) | expected
         for name in ("SST", "TSK"):
-            temperature = np.asarray(wrf[name][0])[ocean]
+            temperature = np.asarray(wrf[name][0])[water]
             # Match real.exe's broad water-temperature sanity range (same upstream source).
             if np.any((temperature <= 150) | (temperature >= 400)):
-                raise ValueError(f"{wrfinput_path}: ocean {name} outside (150, 400) K")
+                raise ValueError(f"{wrfinput_path}: water {name} outside (150, 400) K")
 
 
 def validate_geo_em(

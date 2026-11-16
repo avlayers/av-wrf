@@ -268,6 +268,15 @@ def test_repair_rejects_invalid_fractions_even_in_unselected_lake(
     assert path.read_bytes() == original
 
 
+def test_seedless_inland_lake_passes_mask_and_temperature_admission(
+    geography: tuple[Path, DomainProfile],
+) -> None:
+    geog_path, domain = geography
+    validate_geo_em(geog_path, replace(domain, ocean_seeds_lat_lon_deg=()), lake_depth=True)
+    wrfinput_path = _write_wrfinput(geog_path)
+    validate_lake_initialization(geog_path, wrfinput_path)
+
+
 @pytest.mark.parametrize("tamper", ("mask", "zero_sst", "zero_tsk", "nan", "masked"))
 def test_real_initialization_requires_sealed_lake_mask_and_finite_water_temperatures(
     geography: tuple[Path, DomainProfile], tamper: str

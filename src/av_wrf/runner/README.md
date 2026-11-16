@@ -4,7 +4,8 @@ Effectful runtime adapters for object storage (`store.py`), declarative PyYAML
 bundle loading (`bundle.py`), stage validation and namelist/forcing-subset
 `prep` (`stages.py`), attempt-staged `post` (`post.py`), full-horizon `publish`
 promotion (`publish.py`), container `BuildManifest` verification (`solver.py`),
-forcing bundles (`mirrors.py`), and fail-closed webhook dispatch (`dispatch.py`).
+`met_em` inspection (`metgrid.py`), forcing bundles (`mirrors.py`), and
+fail-closed webhook dispatch (`dispatch.py`).
 
 ```python
 from av_wrf.runner import LocalFileStore, ObjectStore, check_all_products

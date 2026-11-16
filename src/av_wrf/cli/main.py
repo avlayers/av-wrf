@@ -10,6 +10,7 @@ from pathlib import Path
 
 from av_wrf.cli.env import RuntimeEnv, load_runtime_env
 from av_wrf.runner import (
+    BuildManifest,
     LoadedBundle,
     ObjectStore,
     acquire_forcing,
@@ -124,17 +125,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_manifest(env: RuntimeEnv, *, allow_unpinned_dev: bool) -> BuildManifest:
+    return load_build_manifest(
+        Path(env.build_manifest_path), env.oci_digest, allow_unpinned_dev=allow_unpinned_dev
+    )
+
+
 def _run_check(cfg_dir: Path, product_id: str | None, mpi_ranks: int) -> int:
-    if product_id is not None:
-        summary = check_product_config(cfg_dir, product_id)
-        print(json.dumps({"status": "ok", "mpi_ranks": mpi_ranks, **dataclasses.asdict(summary)}))
-        return 0
-    summaries = check_all_products(cfg_dir)
-    out = {
-        "status": "ok",
-        "mpi_ranks": mpi_ranks,
-        "products": [dataclasses.asdict(s) for s in summaries],
-    }
+    out: dict[str, object] = {"status": "ok", "mpi_ranks": mpi_ranks}
+    if product_id is None:
+        out["products"] = [dataclasses.asdict(s) for s in check_all_products(cfg_dir, mpi_ranks)]
+    else:
+        out.update(dataclasses.asdict(check_product_config(cfg_dir, product_id, mpi_ranks)))
     print(json.dumps(out))
     return 0
 
@@ -150,11 +152,7 @@ def _run_plan_prep_or_solve(
 ) -> dict[str, object]:
     prod_id, att = bundle.product.product_id, str(args.attempt)
     if args.command == "plan":
-        manifest = load_build_manifest(
-            Path(env.build_manifest_path),
-            env.oci_digest,
-            allow_unpinned_dev=bool(args.allow_unpinned_dev),
-        )
+        manifest = _build_manifest(env, allow_unpinned_dev=bool(args.allow_unpinned_dev))
         key, lock = plan_product_cycle(
             cfg_dir,
             stage_store,

@@ -156,6 +156,7 @@ class ProductSpec:
     min_horizon_hours: int
     max_cycle_age_hours: int
     schedule_cron_utc: str
+    enforce_local_deadline: bool = True
 
 
 @dataclass(frozen=True)

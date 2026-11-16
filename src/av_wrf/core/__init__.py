@@ -23,21 +23,26 @@ from av_wrf.core.grid import (
 )
 from av_wrf.core.metrics import pressure_tendency_abs_hpa_hr
 from av_wrf.core.namelist import (
+    MIN_PATCH_CELLS,
     MYNN_CLOUD_FIELD,
     MYNN_HISTORY_FILE,
     MYNN_HISTORY_TEXT,
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
+    native_decomposition,
     render_fortran_namelist,
 )
 from av_wrf.core.nesting import (
     forcing_domain,
     nesting_active,
     parent_domain_shape,
+    resolved_domains,
+    validate_resolved_topology,
 )
 from av_wrf.core.physics_namelist import (
     adaptive_domains,
     physics_and_dynamics_sections,
+    validate_science_profile,
 )
 from av_wrf.core.post import (
     NormalizedWrfFrame,
@@ -103,6 +108,7 @@ __all__ = [
     "LV_VAPOR_J_KG",
     "MAX_SAFE_REFERENCE_DZ_M",
     "MIN_DOMAIN_MASS_CELLS",
+    "MIN_PATCH_CELLS",
     "MIN_SPINUP_HOURS",
     "MIN_STABLE_DZBOT_M",
     "MIN_WATER_VAPOR_KGKG",
@@ -141,6 +147,7 @@ __all__ = [
     "lambert_xy_m_to_latlon",
     "latlon_to_lambert_xy_m",
     "model_column_spacing",
+    "native_decomposition",
     "nesting_active",
     "parent_domain_shape",
     "parse_cycle_arg",
@@ -154,11 +161,14 @@ __all__ = [
     "render_fortran_namelist",
     "required_forcing_forecast_hours",
     "resolve_cycle_window",
+    "resolved_domains",
     "selected_lead_hours",
     "validate_column_geometry",
     "validate_domain_profile",
     "validate_frame_columns",
     "validate_horizon_policy",
+    "validate_resolved_topology",
+    "validate_science_profile",
     "validate_solver_znw",
     "validate_thermodynamic_field",
     "validate_vertical_column",

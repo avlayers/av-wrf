@@ -88,7 +88,7 @@ def _messages(lock: RunLock, fhr: int) -> list[dict[str, object]]:
 class TestForcingManifest(TestCase):
     def test_nested_gfs_rejects_cutout_that_only_covers_child(self) -> None:
         bundle = bundle_for_recipe(ROOT / "config", GFS)
-        domain = replace(bundle.domain, parent_grid_ratio=3)
+        domain = replace(bundle.domain, parent_grid_ratio=3, nest_trigger_ratio=3.5)
         spacing = bundle.primary_source.grid_spacing_deg
         west, south, east, north = computational_latlon_bounds(domain, snap_deg=spacing)
         nx = round((east - west) / spacing) + 1
@@ -151,7 +151,7 @@ class TestForcingManifest(TestCase):
             ) as compile_sections:
                 validate_bundle(bundle, publish_origin_utc="20261112/00")
                 compile_sections.assert_called_once_with(
-                    bundle.domain, bundle.science, bundle.primary_source, nested=nested
+                    bundle.domain, bundle.science, bundle.primary_source
                 )
             if nested:
                 broken = replace(bundle.domain, parent_halo_cells=0)

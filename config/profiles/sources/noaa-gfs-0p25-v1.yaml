@@ -9,6 +9,7 @@ interval_seconds: 3600
 grid_spacing_deg: 0.25
 pressure_level_count: 34
 soil_layer_centers_cm: [5.0, 25.0, 70.0, 150.0]
+# Estimated; update after production lag statistics.
 source_ready_lag_p95_hours: 4.8
 mirrors:
   - https://noaa-gfs-bdp-pds.s3.amazonaws.com

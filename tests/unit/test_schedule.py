@@ -86,18 +86,21 @@ class TestSchedule(unittest.TestCase):
                 validate_horizon_policy(
                     dataclasses.replace(prod, region_tz="Invalid/Zone"), src, out
                 )
-            with self.assertRaises(ValueError):
-                validate_horizon_policy(
-                    dataclasses.replace(
-                        prod,
-                        region_tz="UTC",
-                        local_deadline_hhmm="00:05",
-                        schedule_cron_utc="15 23 * * *",
-                    ),
-                    src,
-                    out,
-                    publish_origin_utc=f"2026-11-12T{prod.publish_origin_hour_utc:02d}:00:00Z",
-                )
+            if prod.enforce_local_deadline:
+                with self.assertRaises(ValueError):
+                    validate_horizon_policy(
+                        dataclasses.replace(
+                            prod,
+                            region_tz="UTC",
+                            local_deadline_hhmm="00:05",
+                            schedule_cron_utc="15 23 * * *",
+                        ),
+                        src,
+                        out,
+                        publish_origin_utc=(
+                            f"2026-11-12T{prod.publish_origin_hour_utc:02d}:00:00Z"
+                        ),
+                    )
 
             iso_arg = f"2026-11-12T{prod.publish_origin_hour_utc:02d}:00:00Z"
             self.assertTrue(is_cycle_live_fresh(prod, out, iso_arg, "2026-11-12T04:00:00Z"))
@@ -144,11 +147,39 @@ class TestSchedule(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid ISO-8601 timestamp.*explicit Z/offset"):
             parse_iso_utc("2026-11-12T00:00:00xyz")
 
+    def test_relaxed_full_product_ignores_briefing_but_short_products_do_not(self) -> None:
+        cfg = ROOT / "config"
+        bundles = [
+            load_bundle(cfg, path.stem) for path in sorted((cfg / "products").glob("*.yaml"))
+        ]
+        full = next(b for b in bundles if not b.product.enforce_local_deadline)
+        short = next(b for b in bundles if b.product.enforce_local_deadline)
+        origin = f"2026-11-12T{full.product.publish_origin_hour_utc:02d}:00:00Z"
+        self.assertTrue(
+            is_cycle_live_fresh(full.product, full.output, origin, "2026-11-12T12:00:00Z")
+        )
+        self.assertTrue(
+            is_cycle_live_fresh(full.product, full.output, origin, "2026-11-12T18:00:00Z")
+        )
+        self.assertFalse(
+            is_cycle_live_fresh(full.product, full.output, origin, "2026-11-12T18:00:01Z")
+        )
+        short_product = dataclasses.replace(
+            short.product, max_cycle_age_hours=24, min_horizon_hours=1
+        )
+        short_origin = f"2026-11-12T{short_product.publish_origin_hour_utc:02d}:00:00Z"
+        self.assertFalse(
+            is_cycle_live_fresh(short_product, short.output, short_origin, "2026-11-12T12:00:00Z")
+        )
+
     def test_briefing_cutoff_follows_local_dst(self) -> None:
         cfg = ROOT / "config"
-        b = load_bundle(cfg, next((cfg / "products").glob("*.yaml")).stem)
+        b = load_bundle(cfg, sorted((cfg / "products").glob("*.yaml"))[0].stem)
         product = dataclasses.replace(
-            b.product, region_tz="America/New_York", local_deadline_hhmm="00:30"
+            b.product,
+            region_tz="America/New_York",
+            local_deadline_hhmm="00:30",
+            enforce_local_deadline=True,
         )
         for date, deadline_hour in (("2026-11-12", "05"), ("2026-07-12", "04")):
             origin = f"{date}T00:00:00Z"
@@ -164,6 +195,7 @@ class TestSchedule(unittest.TestCase):
             b.product,
             region_tz="America/New_York",
             local_deadline_hhmm="20:01",
+            enforce_local_deadline=True,
             forcing_cycle_hour_utc=18,
             publish_origin_hour_utc=0,
             schedule_cron_utc="15 23 * * *",

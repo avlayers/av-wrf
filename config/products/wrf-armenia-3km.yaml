@@ -1,5 +1,5 @@
-# Armenia 3 km, 72-hour product (08:30 Asia/Yerevan = 04:30 UTC briefing target).
-# The 18Z GFS arrival allowance is 4.8 h; full-domain delivery needs target-host timing.
+# Armenia 3 km, 72-hour product. The 08:30 Asia/Yerevan briefing is advisory:
+# the full product accepts an 18 h origin age while retaining a 36 h horizon floor.
 product_id: wrf-armenia-3km
 model_id: wrf-armenia-3km
 label: WRF Armenia 3 km
@@ -13,6 +13,7 @@ spinup_hours: 6
 forcing_cycle_hour_utc: 18
 publish_origin_hour_utc: 0
 local_deadline_hhmm: "08:30"
+enforce_local_deadline: false
 min_horizon_hours: 36
-max_cycle_age_hours: 6
+max_cycle_age_hours: 18
 schedule_cron_utc: "15 23 * * *"

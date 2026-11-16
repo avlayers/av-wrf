@@ -92,9 +92,11 @@ def _validate_physics_compatibility(science: ScienceProfile) -> None:  # noqa: C
         raise ValueError("diff_6th_opt=2 over steep terrain requires diff_6th_slopeopt=1")
 
 
-def validate_science_profile(science: ScienceProfile, domain: DomainProfile) -> None:
+def validate_science_profile(
+    science: ScienceProfile, domain: DomainProfile, *, published: bool = True
+) -> None:
     """Enforce domain sizing policy and WRF v4.8 physics, CFL, AFWA, and sponge invariants."""
-    validate_domain_profile(domain)
+    validate_domain_profile(domain, published=published)
     if (science.wrf_version, science.wps_version) != ("4.8.0", "4.7.0"):
         raise ValueError("Supported namelist versions are WRF 4.8.0 and WPS 4.7.0")
     _validate_physics_compatibility(science)

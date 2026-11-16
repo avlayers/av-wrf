@@ -29,6 +29,7 @@ from av_wrf.core.post_3d import (
     post_3d_slabs,
 )
 from av_wrf.core.thermo import (
+    MIN_WATER_VAPOR_KGKG,
     clamp_spfh_2m_vec,
     groom_f32_buf,
     mixing_ratio_to_spfh_vec,
@@ -91,7 +92,11 @@ def _post_surface_slabs(
     t2_gr = np.frombuffer(t2_s.buf, np.float32).reshape(ny, nx)
     validate_thermodynamic_field("temp_2m_k", t2_gr)
     t2 = t2_gr.astype(np.float64)
-    q2 = mixing_ratio_to_spfh_vec(crop2_f64(raw.q2_kgkg, trim, "Q2"))
+    q2_raw = crop2_f64(raw.q2_kgkg, trim, "Q2")
+    # The WPS humidity bound also covers this near-surface mixing-ratio admission.
+    if bool(np.any(q2_raw < MIN_WATER_VAPOR_KGKG)):
+        raise ValueError("Large negative Q2 encountered in post_frame")
+    q2 = mixing_ratio_to_spfh_vec(q2_raw)
     sp2 = clamp_spfh_2m_vec(q2, t2, psfc)
     sh, lh, pr = _surface_accum_rates(prev, curr, sc.bucket_mm)
     u10g = crop2_f64(raw.u10_grid_mps, trim, "U10")
@@ -99,10 +104,14 @@ def _post_surface_slabs(
     ue, ve = rotate_grid_to_earth_vec(u10g, v10g, ca, sa)
     pblh = crop2_f64(raw.pblh_m, trim, "PBLH", nonnegative=True)
     cape = crop2_f64(raw.afwa_cape_jkg, trim, "AFWA_CAPE_MU", nonnegative=True)
+    ustar = crop2_f64(raw.ustar_mps, trim, "UST")
+    # Native UST is non-negative; allow only a floating-point-sized undershoot.
+    if bool(np.any(ustar < -1e-6)):
+        raise ValueError("Negative UST encountered in post_frame")
     gust = parameterized_gust_10m_vec(
         ue,
         ve,
-        crop2_f64(raw.ustar_mps, trim, "UST"),
+        ustar,
         crop2_f64(raw.hfx_wm2, trim, "HFX"),
         crop2_f64(raw.lh_wm2, trim, "LH"),
         pblh,

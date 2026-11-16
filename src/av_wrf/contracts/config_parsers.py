@@ -313,7 +313,8 @@ def parse_output_profile(raw: Mapping[str, object]) -> OutputProfile:
 
 
 def parse_product_spec(raw: Mapping[str, object]) -> ProductSpec:
-    _check_keys("ProductSpec", frozenset(ProductSpec.__dataclass_fields__), raw)
+    optional = frozenset({"enforce_local_deadline"})
+    _check_keys("ProductSpec", frozenset(ProductSpec.__dataclass_fields__), raw, optional)
     prod = ProductSpec(
         product_id=_req_str(raw, "product_id"),
         model_id=_req_str(raw, "model_id"),
@@ -331,6 +332,7 @@ def parse_product_spec(raw: Mapping[str, object]) -> ProductSpec:
         min_horizon_hours=_req_int(raw, "min_horizon_hours"),
         max_cycle_age_hours=_req_int(raw, "max_cycle_age_hours"),
         schedule_cron_utc=_req_str(raw, "schedule_cron_utc"),
+        enforce_local_deadline=_opt_bool(raw, "enforce_local_deadline", True),
     )
     if not (0 <= prod.forcing_cycle_hour_utc < 24 and 0 <= prod.publish_origin_hour_utc < 24):
         raise ValueError("UTC cycle hours must lie in 0..23")

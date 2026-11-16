@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+from math import isqrt
 
 from av_wrf.contracts import (
     CycleWindow,
@@ -12,7 +13,11 @@ from av_wrf.contracts import (
     ScienceProfile,
     parse_iso_utc,
 )
-from av_wrf.core.nesting import nesting_active, parent_domain_shape
+from av_wrf.core.nesting import (
+    nesting_active,
+    parent_domain_shape,
+    validate_resolved_topology,
+)
 from av_wrf.core.physics_namelist import (
     NamelistSections,
     NamelistValue,
@@ -25,6 +30,19 @@ from av_wrf.core.physics_namelist import (
 MYNN_CLOUD_FIELD = "CLDFRA_BL"
 MYNN_HISTORY_FILE = "mynn-history.txt"
 MYNN_HISTORY_TEXT = f"+:h:0:{MYNN_CLOUD_FIELD}\n"
+
+# WRF's RSL_LITE communicator requires at least ten cells per patch in each direction.
+# https://github.com/wrf-model/WRF/blob/v4.8.0/external/RSL_LITE/module_dm.F
+MIN_PATCH_CELLS = 10
+
+
+def native_decomposition(ranks: int) -> tuple[int, int]:
+    """Mirror WRF's default MPASPECT mesh: largest divisor <= sqrt(ranks) in x."""
+    # https://github.com/wrf-model/WRF/blob/v4.8.0/external/RSL_LITE/module_dm.F
+    if isinstance(ranks, bool) or ranks < 1:
+        raise ValueError("MPI ranks must be >= 1")
+    nproc_x = next(x for x in range(isqrt(ranks), 0, -1) if ranks % x == 0)
+    return nproc_x, ranks // nproc_x
 
 
 def _wrf_domains(
@@ -47,6 +65,7 @@ def _wrf_domains(
     parent_we, parent_sn = parent_domain_shape(domain) if nested else (e_we, e_sn)
     dx, dy = domain.dx_m, domain.dy_m
     start = (1, domain.parent_halo_cells + 1) if nested else 1
+    # The child clock is `time_step_s`; `parent_time_step_ratio` scales the d01 clock.
     domains: dict[str, NamelistValue] = {
         "time_step": science.time_step_s * ratio,
         "max_dom": max_dom,
@@ -65,6 +84,7 @@ def _wrf_domains(
         "j_parent_start": start,
         "parent_grid_ratio": (1, ratio) if nested else 1,
         "parent_time_step_ratio": (1, ratio) if nested else 1,
+        # One-way nesting: child states never feed back into the parent.
         "feedback": 0,
         "smooth_option": 0,
         "p_top_requested": domain.p_top_pa,
@@ -86,10 +106,10 @@ def compile_wrf_namelist_sections(
     *,
     metgrid_levels: int | None = None,
     metgrid_soil_levels: int | None = None,
-    nested: bool = False,
 ) -> NamelistSections:
     """Compile validated profiles into WRF namelist sections (1 or 2 concentric domains)."""
-    validate_science_profile(science, domain)
+    validate_resolved_topology(domain, science, forcing.grid_spacing_deg)
+    nested = nesting_active(domain, forcing.grid_spacing_deg)
     max_dom = 2 if nested else 1
     return {
         "time_control": {
@@ -115,7 +135,7 @@ def compile_wrf_namelist_sections(
             "spec_zone": science.spec_zone,
             "relax_zone": science.relax_zone,
         },
-        # MPI WRF requires this group even when no I/O ranks are reserved.
+        # Every launched rank computes; WRF writes history synchronously.
         # https://github.com/wrf-model/WRF/blob/v4.8.0/frame/module_io_quilt_old.F#L2474-L2480
         "namelist_quilt": {"nio_tasks_per_group": 0, "nio_groups": 1},
     }
@@ -129,6 +149,36 @@ def forcing_bracket_duration_s(window: RunLock | CycleWindow, interval_s: int) -
     init = parse_iso_utc(window.wrf_init_utc)
     total_s = int((origin - init).total_seconds()) + max(window.lead_hours) * 3600
     return ((total_s + interval_s - 1) // interval_s) * interval_s
+
+
+def _run_time_control(
+    start_dt: datetime,
+    end_dt: datetime,
+    total_hours: int,
+    begin: NamelistValue,
+    max_dom: int,
+    base: dict[str, NamelistValue],
+) -> dict[str, NamelistValue]:
+    return {
+        "run_days": 0,
+        "run_hours": total_hours,
+        "run_minutes": 0,
+        "run_seconds": 0,
+        "start_year": per_domain(start_dt.year, max_dom),
+        "start_month": per_domain(start_dt.month, max_dom),
+        "start_day": per_domain(start_dt.day, max_dom),
+        "start_hour": per_domain(start_dt.hour, max_dom),
+        "end_year": per_domain(end_dt.year, max_dom),
+        "end_month": per_domain(end_dt.month, max_dom),
+        "end_day": per_domain(end_dt.day, max_dom),
+        "end_hour": per_domain(end_dt.hour, max_dom),
+        "history_begin_h": begin,
+        "io_form_history": 2,
+        "io_form_restart": 2,
+        "io_form_input": 2,
+        "io_form_boundary": 2,
+        **base,
+    }
 
 
 def compile_wrf_run_namelist(
@@ -149,7 +199,6 @@ def compile_wrf_run_namelist(
         forcing,
         metgrid_levels=metgrid_levels,
         metgrid_soil_levels=metgrid_soil_levels,
-        nested=nested,
     )
     start_dt = parse_iso_utc(lock.wrf_init_utc)
     total_hours = lock.spinup_hours + max(lock.lead_hours)
@@ -163,28 +212,17 @@ def compile_wrf_run_namelist(
     end_dt = start_dt + timedelta(seconds=end_s)
     # WRF adapts the parent clock modulo its history cadence. Delay writes independently.
     # https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/adapt_timestep_em.F#L321-L355
-    begin = (end_s // 3600 + 1, lock.spinup_hours) if nested else lock.spinup_hours
+    if nested:
+        parent_begin = (end_s // 3600 + 1, lock.spinup_hours)
+        if parent_begin[0] <= total_hours:
+            raise ValueError("Nested parent history must begin after the integration ends")
+        begin: NamelistValue = parent_begin
+    else:
+        begin = lock.spinup_hours
     max_dom = 2 if nested else 1
-    base["time_control"] = {
-        "run_days": 0,
-        "run_hours": total_hours,
-        "run_minutes": 0,
-        "run_seconds": 0,
-        "start_year": per_domain(start_dt.year, max_dom),
-        "start_month": per_domain(start_dt.month, max_dom),
-        "start_day": per_domain(start_dt.day, max_dom),
-        "start_hour": per_domain(start_dt.hour, max_dom),
-        "end_year": per_domain(end_dt.year, max_dom),
-        "end_month": per_domain(end_dt.month, max_dom),
-        "end_day": per_domain(end_dt.day, max_dom),
-        "end_hour": per_domain(end_dt.hour, max_dom),
-        "history_begin_h": begin,
-        "io_form_history": 2,
-        "io_form_restart": 2,
-        "io_form_input": 2,
-        "io_form_boundary": 2,
-        **base["time_control"],
-    }
+    base["time_control"] = _run_time_control(
+        start_dt, end_dt, total_hours, begin, max_dom, base["time_control"]
+    )
     if not for_real and science.bl_pbl_physics == 5 and science.icloud_bl > 0:
         # The native Registry includes these MYNN fields only on the restart stream.
         base["time_control"]["iofields_filename"] = per_domain(MYNN_HISTORY_FILE, max_dom)
@@ -213,6 +251,7 @@ def render_fortran_namelist(sections: NamelistSections) -> str:
 
 
 __all__ = [
+    "MIN_PATCH_CELLS",
     "MYNN_CLOUD_FIELD",
     "MYNN_HISTORY_FILE",
     "MYNN_HISTORY_TEXT",
@@ -221,6 +260,7 @@ __all__ = [
     "compile_wrf_namelist_sections",
     "compile_wrf_run_namelist",
     "forcing_bracket_duration_s",
+    "native_decomposition",
     "render_fortran_namelist",
     "validate_science_profile",
 ]

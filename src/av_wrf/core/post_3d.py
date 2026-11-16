@@ -132,6 +132,9 @@ def _cloud_and_thermo(
     p_all, p_buf = _validate_and_groom_3d_pressure(raw, psfc, trim, k_exp)
     cloud_shape = (raw.cldfra.nz, ny, nx)
     cloud = _mass_view(raw.cldfra, trim, cloud_shape)
+    # Cloud fraction is bounded by definition; tolerate only float32 round-off.
+    if bool(np.any(cloud < 0.0)) or bool(np.any(cloud > 1.0 + 1e-6)):
+        raise ValueError("CLDFRA outside [0, 1] in post_frame")
     cld_tot, cld_low = max_random_cloud_cover_pct(
         cloud, p_all, _crop_sponge_2d_view(raw.psfc_pa, trim)
     )

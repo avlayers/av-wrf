@@ -33,7 +33,7 @@ def _to_f32_array(arr: npt.NDArray[np.float32]) -> array[float]:
     return out
 
 
-def validate_domain_profile(domain: DomainProfile) -> None:
+def validate_domain_profile(domain: DomainProfile, *, published: bool = True) -> None:
     """Enforce the WPS Lambert coordinate and computational domain limits."""
     # WPS geogrid passes one Lambert spacing and uses its default spherical radius.
     if domain.dx_m != domain.dy_m or not 0.0 < domain.dx_m < math.inf:
@@ -53,7 +53,8 @@ def validate_domain_profile(domain: DomainProfile) -> None:
             f"Domain policy requires >= {MIN_DOMAIN_MASS_CELLS}x{MIN_DOMAIN_MASS_CELLS} "
             f"mass cells (e_we >= {MIN_DOMAIN_MASS_CELLS + 1}, got {domain.e_we}x{domain.e_sn})"
         )
-    published_grid_shape(domain)
+    if published:
+        published_grid_shape(domain)
 
 
 def _wrap_lon_rad(delta_rad: float) -> float:
