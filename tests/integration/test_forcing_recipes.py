@@ -295,6 +295,13 @@ class TestForcingRecipes(TestCase):
                 _inspect_metgrid_dims(self.root, self.bundle, self.lock)
             with netCDF4.Dataset(str(path), "a") as ds:
                 ds.setncattr("FLAG_SH", 1)
+                ds["SPECHUMD"][:] = np.float32(-4.05e-5)
+            self.assertEqual(_inspect_metgrid_dims(self.root, self.bundle, self.lock), (5, 8))
+            with netCDF4.Dataset(str(path), "a") as ds:
+                ds["SPECHUMD"][:] = np.float32(-2.0e-4)
+            with self.assertRaisesRegex(ValueError, "Invalid values in WPS field SPECHUMD"):
+                _inspect_metgrid_dims(self.root, self.bundle, self.lock)
+            with netCDF4.Dataset(str(path), "a") as ds:
                 ds["SPECHUMD"][:] = 1.0
             with self.assertRaisesRegex(ValueError, "Invalid values in WPS field SPECHUMD"):
                 _inspect_metgrid_dims(self.root, self.bundle, self.lock)

@@ -18,6 +18,7 @@ from av_wrf.core import (
     validate_solver_znw,
     validate_wrfinput_columns,
 )
+from av_wrf.core.thermo import MIN_WATER_VAPOR_KGKG
 
 if TYPE_CHECKING:
     import netCDF4
@@ -27,7 +28,10 @@ GRID_COORD_TOL_DEG = 5.0e-4
 _WPS_FIELD_LIMITS = {
     "SM": (0.0, 1.0),
     "SOILM": (0.0, 1.0),
-    "SPECHUMD": (0.0, math.nextafter(1.0, 0.0)),
+    # real.exe converts specific humidity as q / (1 - q).
+    # https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
+    # Metgrid undershoots dry ICON QV; the floor matches the QVAPOR post bound.
+    "SPECHUMD": (MIN_WATER_VAPOR_KGKG, math.nextafter(1.0, 0.0)),
 }
 _WPS_FIELD_FLAGS = {
     "LAKE_DEPTH": "FLAG_LAKE_DEPTH",
@@ -51,11 +55,15 @@ def verify_wps_fields(ds: netCDF4.Dataset, path: Path, fields: tuple[str, ...]) 
             raise ValueError(f"Missing WPS {flag}=1 in {path}")
         values = var[:]
         lo, hi = _WPS_FIELD_LIMITS.get(name, (-1e19, 1e19))
-        if (
-            np.ma.is_masked(values)
-            or not lo <= float(np.min(values)) <= float(np.max(values)) <= hi
-        ):
-            raise ValueError(f"Invalid values in WPS field {name} in {path}")
+        if np.ma.is_masked(values):
+            raise ValueError(f"Invalid values in WPS field {name} in {path}: masked")
+        vmin = float(np.min(values))
+        vmax = float(np.max(values))
+        if not lo <= vmin <= vmax <= hi:
+            raise ValueError(
+                f"Invalid values in WPS field {name} in {path}: "
+                f"[{vmin}, {vmax}] outside [{lo}, {hi}]"
+            )
 
 
 def verify_local_wrf_nc(nc_path: Path) -> str:
