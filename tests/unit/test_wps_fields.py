@@ -17,7 +17,7 @@ for p in (ROOT, ROOT / "src"):
         sys.path.insert(0, str(p))
 
 from av_wrf.codecs.wrf_nc_grid import verify_wps_fields  # noqa: E402
-from av_wrf.core.thermo import MIN_WATER_VAPOR_KGKG  # noqa: E402
+from av_wrf.core import MIN_WATER_VAPOR_KGKG  # noqa: E402
 
 
 def _write_spechumd(

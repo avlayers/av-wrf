@@ -12,13 +12,13 @@ import numpy.typing as npt
 
 from av_wrf.contracts import DomainProfile, ScienceProfile, format_iso_utc, parse_iso_utc
 from av_wrf.core import (
+    MIN_WATER_VAPOR_KGKG,
     computational_grid_origin_xy_m,
     lambert_grid_to_earth_trig,
     lambert_xy_m_to_latlon,
     validate_solver_znw,
     validate_wrfinput_columns,
 )
-from av_wrf.core.thermo import MIN_WATER_VAPOR_KGKG
 
 if TYPE_CHECKING:
     import netCDF4
