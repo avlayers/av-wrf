@@ -27,6 +27,7 @@ from av_wrf.runner.bundle import LoadedBundle, load_bundle
 from av_wrf.runner.publish_verify import (
     ready_forecast_relpath,
     validate_post_manifest,
+    validate_ready_receipt_metadata,
     verify_published_objects,
     write_verified_payload,
 )
@@ -47,8 +48,7 @@ from av_wrf.runner.store import (
 )
 
 MAX_CAS_RETRIES = 8
-_FIXTURE = "synthetic-fixture"
-_FORECAST = "forecast.zarr"
+_FIXTURE, _FORECAST = "synthetic-fixture", "forecast.zarr"
 type _LatestOutcome = Literal["advanced", "current", "newer", "outside_live_window", "fixture"]
 
 
@@ -141,6 +141,7 @@ def _check_existing_published_ready(
     committed = _read_ready(store, root, lock.model_id, lock.cycle_partition, synthetic=synthetic)
     if committed is None:
         return None
+    validate_ready_receipt_metadata(committed, b, window, require_pinned_digest=not synthetic)
     if committed.attempt_id != lock.attempt_id:
         raise FileExistsError(
             f"Cycle {lock.cycle_partition} already published by {committed.attempt_id}"

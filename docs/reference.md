@@ -8,7 +8,7 @@ python3 scripts/generate_reference.py
 
 ## CLI Subcommands
 
-Source: [`src/av_wrf/cli/main.py`](../src/av_wrf/cli/main.py).
+Source: [`src/av_wrf/cli/parsers.py`](../src/av_wrf/cli/parsers.py).
 
 - `av-wrf check`: Validate configured product(s), vertical stretch, namelist, and Zarr v3.
 - `av-wrf plan`: Resolve cycle timestamps and persist an immutable run.lock.json.
@@ -19,6 +19,7 @@ Source: [`src/av_wrf/cli/main.py`](../src/av_wrf/cli/main.py).
 - `av-wrf solve`: Execute WPS ungrib/metgrid + MPI real/wrf and bind solver_receipt.json.
 - `av-wrf post`: Stage wrfout frames into attempt-scoped sharded wrf-zarr-v3 arrays.
 - `av-wrf publish`: Verify full RunLock horizon, promote Zarr store, and CAS latest.json.
+- `av-wrf recover`: Validate a committed cycle and advance latest without recomputing it.
 - `av-wrf reconcile`: Dispatch pending _ready.json webhook idempotently (fail closed).
 
 ## Configured Products

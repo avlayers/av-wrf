@@ -23,6 +23,7 @@ sample packs, and tiles belong to `windy-av-layer`.
 - [Science](docs/science.md): physical conventions and qualification limits.
 - [Reference](docs/reference.md): generated commands, products, and field inventory.
 - [Performance](docs/performance.md): MPI ranks, native decomposition, and admission.
+- [Operations](docs/operations.md): daily forecast runner, geography cache, and secrets.
 - [Contract](vendor/producer-contract/README.md): provisional `wrf-zarr-v3` schema.
 - [Containers](docker/README.md): runtime and pinned WRF/WPS solver builds.
 - [Plan](docs/plan.md) and [review evidence](docs/review-plan.md): release gates and measurements.

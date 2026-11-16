@@ -25,6 +25,7 @@ from av_wrf.runner.mirrors import (
 )
 from av_wrf.runner.post import post_cycle_from_inputs
 from av_wrf.runner.publish import load_ready_receipt, publish_cycle_receipt
+from av_wrf.runner.recovery import recover_committed_cycle
 from av_wrf.runner.s3 import S3Config
 from av_wrf.runner.solver import (
     load_build_manifest,
@@ -87,6 +88,7 @@ __all__ = [
     "published_cycle_prefix",
     "put_idempotent",
     "reconcile_dispatch",
+    "recover_committed_cycle",
     "run_geogrid",
     "run_lock_key",
     "run_wrf_cycle",
