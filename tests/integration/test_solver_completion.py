@@ -161,7 +161,7 @@ class TestSolverCompletion(TestCase):
         self.assertEqual(BuildManifest.from_doc(locked.to_doc()), locked)
 
     def test_geogrid_requires_resolved_sources_in_log(self) -> None:
-        product = next((CONFIG / "products").glob("*.yaml")).stem
+        product = sorted((CONFIG / "products").glob("*.yaml"))[0].stem
         default_log = (
             "2026-11-12 08:56:12.265 --- INFORM: Using default data source for HGT_M.\n"
             "2026-11-12 08:56:12.266 --- INFORM: Using default data source for LANDUSEF.\n"
@@ -189,7 +189,11 @@ class TestSolverCompletion(TestCase):
             table.touch()
             for i, (dem, log, error) in enumerate(cases):
                 domain = replace(
-                    bundle.domain, dem_source=dem, geog_data_path=tmp, parent_grid_ratio=1
+                    bundle.domain,
+                    dem_source=dem,
+                    geog_data_path=tmp,
+                    parent_grid_ratio=1,
+                    nest_trigger_ratio=20.0,
                 )
                 work = root / f"work-{i}"
                 geo = work / "geo_em.d01.nc"
@@ -297,7 +301,7 @@ class TestSolverCompletion(TestCase):
             )
 
     def test_public_post_requires_solver_receipt_before_staging(self) -> None:
-        product = next((CONFIG / "products").glob("*.yaml")).stem
+        product = sorted((CONFIG / "products").glob("*.yaml"))[0].stem
         bundle = load_bundle(CONFIG, product)
         origin = f"2026-11-12T{bundle.product.publish_origin_hour_utc:02d}:00:00Z"
         window = resolve_cycle_window(bundle.product, bundle.output, origin)
