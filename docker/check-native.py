@@ -17,9 +17,11 @@ from av_wrf.core import (
     build_accum_baseline,
     compile_wps_namelist_sections,
     compile_wrf_run_namelist,
+    nesting_active,
     post_frame,
     render_fortran_namelist,
     validate_frame_columns,
+    validate_resolved_topology,
 )
 from av_wrf.runner import load_bundle
 
@@ -97,10 +99,16 @@ def _check_history(
 
 
 def _fixture(work: Path, nested: bool) -> None:
-    candidates = (
-        load_bundle(Path("config"), p.stem) for p in Path("config/products").glob("*.yaml")
+    # The synthetic intermediate forcing is written for a 0.1 degree specific-humidity source.
+    bundles = sorted(
+        (load_bundle(Path("config"), path.stem) for path in Path("config/products").glob("*.yaml")),
+        key=lambda item: item.product.product_id,
     )
-    bundle = next(b for b in candidates if b.candidate_source.use_sh_qv)
+    bundle = next(
+        item
+        for item in bundles
+        if item.candidate_source.use_sh_qv and item.candidate_source.grid_spacing_deg == 0.1
+    )
     source = bundle.candidate_source
     domain = dataclasses.replace(
         bundle.domain,
@@ -108,8 +116,8 @@ def _fixture(work: Path, nested: bool) -> None:
         e_sn=103,
         geog_data_path=str(work / "geog"),
         parent_grid_ratio=3 if nested else 1,
-        parent_halo_cells=10 if nested else 0,
-        nest_trigger_ratio=2.0,
+        parent_halo_cells=33 if nested else 0,
+        nest_trigger_ratio=2.0 if nested else 4.0,
     )
     science = dataclasses.replace(bundle.science, history_interval_min=1)
     init = START.replace("_", "T") + "Z"
@@ -134,6 +142,13 @@ def _fixture(work: Path, nested: bool) -> None:
         max_dom=2 if nested else 1,
         active_domain_id=2 if nested else 1,
     )
+    if nesting_active(domain, source.grid_spacing_deg) != nested:
+        raise AssertionError("Fixture mode disagrees with source-driven nesting")
+    validate_resolved_topology(domain, science, source.grid_spacing_deg)
+    namelists = {
+        exe: compile_wrf_run_namelist(domain, science, lock, source, for_real=exe == "real")
+        for exe in ("real", "wrf")
+    }
     geography(work / "geog")
     (work / "geogrid").mkdir()
     (work / "metgrid").mkdir()
@@ -149,7 +164,7 @@ def _fixture(work: Path, nested: bool) -> None:
         (work / table.name).symlink_to(table)
     (work / MYNN_HISTORY_FILE).write_text(MYNN_HISTORY_TEXT, "ascii")
     for exe in ("real", "wrf"):
-        namelist = compile_wrf_run_namelist(domain, science, lock, source, for_real=exe == "real")
+        namelist = namelists[exe]
         if exe == "wrf":
             namelist["time_control"].update(run_hours=0, run_minutes=2)
         (work / "namelist.input").write_text(render_fortran_namelist(namelist), encoding="utf-8")

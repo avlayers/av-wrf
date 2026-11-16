@@ -174,9 +174,12 @@ class TestSchedule(unittest.TestCase):
 
     def test_briefing_cutoff_follows_local_dst(self) -> None:
         cfg = ROOT / "config"
-        b = load_bundle(cfg, next((cfg / "products").glob("*.yaml")).stem)
+        b = load_bundle(cfg, sorted((cfg / "products").glob("*.yaml"))[0].stem)
         product = dataclasses.replace(
-            b.product, region_tz="America/New_York", local_deadline_hhmm="00:30"
+            b.product,
+            region_tz="America/New_York",
+            local_deadline_hhmm="00:30",
+            enforce_local_deadline=True,
         )
         for date, deadline_hour in (("2026-11-12", "05"), ("2026-07-12", "04")):
             origin = f"{date}T00:00:00Z"
