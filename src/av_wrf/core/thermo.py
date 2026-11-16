@@ -28,8 +28,9 @@ IFS_GUST_COEFF = 7.71
 VON_KARMAN = 0.40
 ZERO_CELSIUS_K = 273.15
 WATER_DRY_AIR_MOLAR_MASS_RATIO = 0.622
-# Metgrid undershoot of dry specific humidity, and the QVAPOR floor after real.exe
-# stores q / (1 - q). q = -1e-4 kg/kg becomes a mixing ratio above this floor.
+# Lowest vapor admitted from metgrid SPECHUMD and from wrfout QVAPOR.
+# real.exe converts specific humidity with q / (1 - q):
+# https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
 MIN_WATER_VAPOR_KGKG = -1.0e-4
 # windy-av-layer/packages/soaring/src/parameters.ts, expressed in wire units.
 _CONSUMER_RANGES = {

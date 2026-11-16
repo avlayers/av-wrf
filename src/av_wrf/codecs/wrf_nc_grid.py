@@ -28,9 +28,6 @@ GRID_COORD_TOL_DEG = 5.0e-4
 _WPS_FIELD_LIMITS = {
     "SM": (0.0, 1.0),
     "SOILM": (0.0, 1.0),
-    # real.exe converts specific humidity as q / (1 - q).
-    # https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
-    # Metgrid undershoots dry ICON QV; the floor matches the QVAPOR post bound.
     "SPECHUMD": (MIN_WATER_VAPOR_KGKG, math.nextafter(1.0, 0.0)),
 }
 _WPS_FIELD_FLAGS = {
@@ -48,8 +45,6 @@ def verify_wps_fields(ds: netCDF4.Dataset, path: Path, fields: tuple[str, ...]) 
         var = ds.variables.get(name)
         if not isinstance(var, netCDF4.Variable):
             raise ValueError(f"Missing required WPS field {name} in {path}")
-        # real.exe uses FLAG_SH and converts specific humidity as q / (1 - q).
-        # https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
         flag = _WPS_FIELD_FLAGS.get(name)
         if flag is not None and getattr(ds, flag, 0) != 1:
             raise ValueError(f"Missing WPS {flag}=1 in {path}")
