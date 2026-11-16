@@ -1,13 +1,16 @@
-# Armenia 3 km, 72-hour product. The 08:30 Asia/Yerevan briefing is advisory:
-# the full product accepts an 18 h origin age while retaining a 36 h horizon floor.
+# Armenia 3 km, 72-hour ICON-EU product. Six-hour spin-up from the 18Z cycle
+# plus 72 published hours ends on f078, the last hourly ICON-EU boundary.
+# ICON-EU 0.0625 deg stays under nest_trigger_ratio, so the run is single-domain.
+# GFS is the comparison candidate. The 08:30 Asia/Yerevan briefing is advisory:
+# the product accepts an 18 h origin age while retaining a 36 h horizon floor.
 product_id: wrf-armenia-3km
 model_id: wrf-armenia-3km
-label: WRF Armenia 3 km
+label: WRF Armenia 3 km (ICON-EU)
 region_tz: Asia/Yerevan
 domain_profile: armenia-3km-v2
 science_profile: convection-permitting-3km-v1
-primary_source_profile: noaa-gfs-0p25-v1
-candidate_source_profile: ecmwf-ifs-0p1-v1
+primary_source_profile: dwd-icon-eu-v1
+candidate_source_profile: noaa-gfs-0p25-v1
 output_profile: wrf-zarr-v3-72h
 spinup_hours: 6
 forcing_cycle_hour_utc: 18

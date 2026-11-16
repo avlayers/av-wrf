@@ -28,6 +28,14 @@ def _product(*, pilot: bool = False) -> str:
     return next(n for n in names if ("pilot" in n) == pilot)
 
 
+def _nested_product() -> str:
+    for name in sorted(p.stem for p in (ROOT / "config" / "products").glob("*.yaml")):
+        bundle = load_bundle(ROOT / "config", name)
+        if nesting_active(bundle.domain, bundle.primary_source.grid_spacing_deg):
+            return name
+    raise AssertionError("expected a product whose primary source nests")
+
+
 class TestNesting(unittest.TestCase):
     def test_gfs_triggers_nest_and_parent_covers_child_plus_halos(self) -> None:
         b = load_bundle(ROOT / "config", _product(pilot=True))
@@ -67,7 +75,8 @@ class TestNesting(unittest.TestCase):
     def test_unpublished_parent_skips_the_child_publication_crop(self) -> None:
         b = load_bundle(ROOT / "config", _product())
         domain = dataclasses.replace(b.domain, bdy_trim_cells=70)
-        validate_resolved_topology(domain, b.science, b.primary_source.grid_spacing_deg)
+        # The comparison source is coarse enough to resolve the unpublished parent.
+        validate_resolved_topology(domain, b.science, b.candidate_source.grid_spacing_deg)
 
     def test_invalid_child_publication_crop_still_fails(self) -> None:
         b = load_bundle(ROOT / "config", _product())
@@ -76,7 +85,7 @@ class TestNesting(unittest.TestCase):
             validate_resolved_topology(domain, b.science, b.primary_source.grid_spacing_deg)
 
     def test_unpublished_parent_still_checks_its_scaled_clock(self) -> None:
-        b = load_bundle(ROOT / "config", _product())
+        b = load_bundle(ROOT / "config", _nested_product())
         parent = forcing_domain(b.domain, b.primary_source.grid_spacing_deg)
         scaled = dataclasses.replace(b.science, time_step_s=1000)
         with self.assertRaisesRegex(ValueError, "exceeds 6\\*dx_phys"):
