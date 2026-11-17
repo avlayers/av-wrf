@@ -18,6 +18,7 @@ from av_wrf.core import (  # noqa: E402
     compile_wps_namelist_sections,
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
+    nesting_active,
     render_fortran_namelist,
     required_forcing_forecast_hours,
 )
@@ -81,15 +82,27 @@ PROFILE_TO_NAMELIST_KEY: dict[str, tuple[str, str]] = {
 }
 
 
+def _three_hour_candidate() -> str:
+    for name in sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml")):
+        bundle = load_bundle(ROOT / "config", name)
+        if bundle.candidate_source.interval_seconds == 10_800 and nesting_active(
+            bundle.domain, bundle.primary_source.grid_spacing_deg
+        ):
+            return name
+    raise AssertionError("expected a nested primary with a 3-hour candidate")
+
+
 class TestNamelist(unittest.TestCase):
     def test_exhaustive_science_profile_real_exe_fields_and_wrf_48_guards(self) -> None:
-        prod_id = sorted((ROOT / "config" / "products").glob("*.yaml"))[0].stem
-        bundle = load_bundle(ROOT / "config", prod_id)
+        bundle = load_bundle(ROOT / "config", _three_hour_candidate())
         dom, sci, src, cand = (
             bundle.domain,
             bundle.science,
             bundle.primary_source,
             bundle.candidate_source,
+        )
+        single_dom = dataclasses.replace(
+            dom, parent_grid_ratio=1, parent_halo_cells=0, nest_trigger_ratio=20.0
         )
 
         all_fields = {f.name for f in dataclasses.fields(ScienceProfile)}
@@ -97,22 +110,22 @@ class TestNamelist(unittest.TestCase):
             all_fields - {"profile_id", "wrf_version", "wps_version"},
             set(PROFILE_TO_NAMELIST_KEY.keys()),
         )
-        compiled = compile_wrf_namelist_sections(dom, sci, src)
+        compiled = compile_wrf_namelist_sections(single_dom, sci, src)
         for attr, (sec, key) in PROFILE_TO_NAMELIST_KEY.items():
             self.assertEqual(compiled[sec][key], getattr(sci, attr))
         self.assertEqual(compiled["time_control"]["interval_seconds"], src.interval_seconds)
-        cand_compiled = compile_wrf_namelist_sections(dom, sci, cand)
+        cand_compiled = compile_wrf_namelist_sections(single_dom, sci, cand)
         self.assertEqual(cand_compiled["time_control"]["interval_seconds"], cand.interval_seconds)
         self.assertNotIn("prec_acc_dt", compiled["time_control"])
         self.assertIsInstance(compiled["physics"]["shinhong_scu_mixing"], bool)
         self.assertEqual(compiled["afwa"]["afwa_buoy_opt"], 1)
 
         override = compile_wrf_namelist_sections(
-            dom, sci, src, metgrid_levels=38, metgrid_soil_levels=4
+            single_dom, sci, src, metgrid_levels=38, metgrid_soil_levels=4
         )
         self.assertEqual(override["domains"]["num_metgrid_levels"], 38)
         with self.assertRaisesRegex(ValueError, "at least two"):
-            compile_wrf_namelist_sections(dom, sci, src, metgrid_soil_levels=1)
+            compile_wrf_namelist_sections(single_dom, sci, src, metgrid_soil_levels=1)
 
         for bad in (
             dataclasses.replace(sci, opt_runsrf=5),
@@ -130,10 +143,10 @@ class TestNamelist(unittest.TestCase):
             dataclasses.replace(sci, wrf_version="99"),
         ):
             with self.assertRaises(ValueError):
-                compile_wrf_namelist_sections(dom, bad, src)
+                compile_wrf_namelist_sections(single_dom, bad, src)
 
         with self.assertRaises(ValueError):
-            compile_wrf_namelist_sections(dataclasses.replace(dom, e_we=100), sci, src)
+            compile_wrf_namelist_sections(dataclasses.replace(single_dom, e_we=100), sci, src)
 
         lock = RunLock(
             product_id="wrf-synth-3km",
