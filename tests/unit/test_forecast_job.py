@@ -44,12 +44,12 @@ class TestSolverFamilies(unittest.TestCase):
             self.assertIn("/cpu=32/image=ubuntu24-full-arm64/", label)
             self.assertIn("spot=true", label)
 
-    def test_ten_utc_run_is_scheduled_without_a_consumer_event(self) -> None:
+    def test_ten_utc_run_is_scheduled_and_notifies(self) -> None:
         target = next(
             item for item in load_targets(_OPS) if item.schedule_cron_utc == "00 10 * * *"
         )
         self.assertTrue(target.scheduled)
-        self.assertFalse(target.notify)
+        self.assertTrue(target.notify)
         workflow = (ROOT / ".github/workflows/forecast.yml").read_text(encoding="utf-8")
         self.assertIn(target.schedule_cron_utc, workflow.split("\njobs:", 1)[0])
         minute_s, hour_s, *_rest = target.schedule_cron_utc.split()
@@ -64,25 +64,30 @@ class TestSolverFamilies(unittest.TestCase):
         )
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].product_id, target.product_id)
-        self.assertFalse(jobs[0].notify)
+        self.assertTrue(jobs[0].notify)
         self.assertEqual(jobs[0].consumer_environment, "staging")
         self.assertIn("matrix.run.notify == true", workflow)
         bundle = load_bundle(ROOT / "config", target.product_id)
         origin = parse_iso_utc(jobs[0].cycle_iso)
         self.assertEqual(origin.hour, bundle.product.publish_origin_hour_utc)
 
-    def test_manual_notify_refuses_before_a_receipt_write(self) -> None:
-        target = next(item for item in load_targets(_OPS) if not item.notify)
-        with self.assertRaisesRegex(ValueError, "does not send a consumer event"):
-            dispatch_published(
-                ROOT / "config",
-                _OPS,
-                product_id=target.product_id,
-                cycle="2026-06-02T12:00:00Z",
-                attempt="att-01",
-                store_uri="s3://bucket/prefix",
-                token="token-value",
-            )
+    def test_notify_false_refuses_before_a_receipt_write(self) -> None:
+        text = _OPS.read_text(encoding="utf-8").replace("notify: true", "notify: false", 1)
+        self.assertNotEqual(text, _OPS.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forecasts.yaml"
+            path.write_text(text, encoding="utf-8")
+            target = next(item for item in load_targets(path) if not item.notify)
+            with self.assertRaisesRegex(ValueError, "does not send a consumer event"):
+                dispatch_published(
+                    ROOT / "config",
+                    path,
+                    product_id=target.product_id,
+                    cycle="2026-06-02T12:00:00Z",
+                    attempt="att-01",
+                    store_uri="s3://bucket/prefix",
+                    token="token-value",
+                )
 
     def test_operations_cron_must_match_the_product(self) -> None:
         text = _OPS.read_text(encoding="utf-8").replace('"00 10 * * *"', '"30 10 * * *"', 1)

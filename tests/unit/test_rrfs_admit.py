@@ -129,7 +129,7 @@ def test_product_is_one_domain_and_requests_thirty_one_hours() -> None:
         if item.product_id == bundle.product.product_id
     )
     assert run.scheduled is True
-    assert run.notify is False
+    assert run.notify is True
     RRFS.check_window(bundle.primary_source, bundle.domain, _CYCLE, hours)
     text = RRFS.vtable_text or ""
     assert " | 102 | 0 | | PMSL | Pa | MSLET | 0 | 3 | 192 | 101 |" in text
