@@ -19,6 +19,7 @@ name: forecast
 
 on:
   schedule:
+    - cron: '00 10 * * *'
     - cron: '15 23 * * *'
   workflow_dispatch:
     inputs:
