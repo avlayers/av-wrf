@@ -70,16 +70,29 @@ def _wrfinput(
     temperature: tuple[float, ...] = (280, 282, 285, 288),
     moisture: tuple[float, ...] = (0.2, 0.25, 0.3, 0.22),
     depths: tuple[float, ...] = (0.05, 0.25, 0.7, 1.5),
+    water: bool = False,
 ) -> None:
     with netCDF4.Dataset(str(path), "w") as ds:
         ds.createDimension("Time", 1)
         ds.createDimension("soil_layers_stag", 4)
         ds.createDimension("south_north", 1)
-        ds.createDimension("west_east", 1)
+        width = 2 if water else 1
+        ds.createDimension("west_east", width)
         dims = ("Time", "soil_layers_stag", "south_north", "west_east")
         ds.createVariable("ZS", "f4", ("Time", "soil_layers_stag"))[0, :] = depths
-        ds.createVariable("TSLB", "f4", dims)[0, :, 0, 0] = temperature
-        ds.createVariable("SMOIS", "f4", dims)[0, :, 0, 0] = moisture
+        soil_t = np.zeros((4, 1, width), dtype=np.float32)
+        soil_m = np.zeros((4, 1, width), dtype=np.float32)
+        soil_t[:, 0, 0] = temperature
+        soil_m[:, 0, 0] = moisture
+        land = np.ones((1, width), dtype=np.float32)
+        if water:
+            # Noah-MP writes a constant SST and SMOIS of 1 on water cells.
+            soil_t[:, 0, 1] = 285.0
+            soil_m[:, 0, 1] = 1.0
+            land[0, 1] = 0.0
+        ds.createVariable("TSLB", "f4", dims)[0, :, :, :] = soil_t
+        ds.createVariable("SMOIS", "f4", dims)[0, :, :, :] = soil_m
+        ds.createVariable("LANDMASK", "f4", ("Time", "south_north", "west_east"))[0, :, :] = land
 
 
 def test_met_em_accepts_the_nine_centimetre_depths(tmp_path: Path) -> None:
@@ -148,3 +161,65 @@ def test_wrfinput_requires_varying_finite_soil(tmp_path: Path) -> None:
     _wrfinput(path, moisture=(0.30, 0.075, 0.03, 0.01))
     with pytest.raises(ValueError, match="centimetre depth"):
         admit_wrfinput_soil(path)
+
+
+def test_wrfinput_checks_land_columns_and_keeps_water(tmp_path: Path) -> None:
+    path = tmp_path / "wrfinput.nc"
+    _wrfinput(path, water=True)
+    admit_wrfinput_soil(path)
+    _wrfinput(path, water=True, moisture=(0.9, 0.95, 1.1, 1.2))
+    with pytest.raises(ValueError, match="magnitude"):
+        admit_wrfinput_soil(path)
+    _wrfinput(path, water=True)
+    with netCDF4.Dataset(str(path), "a") as ds:
+        ds.variables["SMOIS"][0, :, 0, 1] = np.float32(0.2)
+    with pytest.raises(ValueError, match="Noah-MP water value"):
+        admit_wrfinput_soil(path)
+    _wrfinput(path, water=True)
+    with netCDF4.Dataset(str(path), "a") as ds:
+        ds.variables["SMOIS"][0, 0, 0, 0] = np.float32("nan")
+    with pytest.raises(ValueError, match="finite"):
+        admit_wrfinput_soil(path)
+    _wrfinput(path, water=True)
+    _mask_cell(path, "TSLB")
+    with pytest.raises(ValueError, match="masked cell"):
+        admit_wrfinput_soil(path)
+
+
+def _rewrite(path: Path, name: str, *, fill: float, masked: bool) -> None:
+    with netCDF4.Dataset(str(path), "a") as ds:
+        dims = ds.variables[name].dimensions
+        ds.renameVariable(name, f"_{name}_raw")
+        var = ds.createVariable(name, "f4", dims, fill_value=np.float32(fill))
+        var[:] = np.ma.masked if masked else np.float32(fill)
+
+
+def _mask_cell(path: Path, name: str) -> None:
+    _rewrite(path, name, fill=9.969209968386869e36, masked=True)
+
+
+def test_met_em_rejects_masked_cells_and_fill_sentinels(tmp_path: Path) -> None:
+    path = tmp_path / "masked.nc"
+    _met_em(path)
+    admit_met_em(path)
+    _mask_cell(path, "TT")
+    with pytest.raises(ValueError, match="masked cell"):
+        admit_met_em(path)
+    _met_em(path)
+    with netCDF4.Dataset(str(path), "a") as ds:
+        ds.variables["TT"][()] = np.float32(1.0e36)
+    with pytest.raises(ValueError, match="fill sentinel"):
+        admit_met_em(path)
+    _met_em(path)
+    _rewrite(path, "TT", fill=-9999.0, masked=False)
+    with pytest.raises(ValueError, match="masked cell"):
+        admit_met_em(path)
+    _met_em(path)
+    with netCDF4.Dataset(str(path), "a") as ds:
+        ds.variables["TT"][()] = np.float32("nan")
+    with pytest.raises(ValueError, match="finite"):
+        admit_met_em(path)
+    _met_em(path)
+    _mask_cell(path, "SOILT")
+    with pytest.raises(ValueError, match="masked cell"):
+        admit_met_em(path)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,9 +14,16 @@ import httpx
 from av_wrf.contracts import format_iso_utc
 from av_wrf.runner.bundle import LoadedBundle, load_forcing_plan
 from av_wrf.runner.forcing_rrfs import RRFS, admit_grib, rrfs_message_selected, rrfs_required_fields
-from av_wrf.runner.mirrors import ForcingSubset
+from av_wrf.runner.mirrors import FORCING_MANIFEST_FILENAME, ForcingSubset
 from av_wrf.runner.range_fetch import fetch_ranges
-from av_wrf.runner.store import LocalFileStore, json_bytes, put_idempotent, sha256_file, sha256_hex
+from av_wrf.runner.store import (
+    LocalFileStore,
+    forcing_cycle_lock,
+    json_bytes,
+    put_idempotent,
+    sha256_file,
+    sha256_hex,
+)
 
 
 def assembled_name(cycle: datetime, hour: int) -> str:
@@ -133,13 +141,63 @@ def _assemble(
     return blob, rows
 
 
-def _install(directory: Path, name: str, payload: bytes) -> None:
+def _json_object(path: Path) -> dict[str, object]:
+    try:
+        doc = json.loads(path.read_bytes())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unreadable RRFS pin file {path.name}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError(f"Unreadable RRFS pin file {path.name}")
+    return doc
+
+
+def _remember(pins: dict[str, str], name: object, digest: object) -> None:
+    if not isinstance(name, str) or not isinstance(digest, str) or not name:
+        raise ValueError("RRFS pin is not a filename and digest")
+    prior = pins.get(name)
+    if prior is not None and prior != digest:
+        raise ValueError(f"RRFS pins disagree for {name}")
+    pins[name] = digest
+
+
+def _pins(directory: Path) -> dict[str, str]:
+    """Return filename hashes already sealed by an inventory or forcing manifest."""
+    pins: dict[str, str] = {}
+    for path in sorted(directory.glob("rrfs.*.sources-*.json")):
+        normalized = _json_object(path).get("normalized_sha256s")
+        if not isinstance(normalized, dict):
+            raise ValueError(f"RRFS inventory {path.name} has no normalized hashes")
+        for name, digest in normalized.items():
+            _remember(pins, name, digest)
+    manifest = directory / FORCING_MANIFEST_FILENAME
+    if not manifest.is_file():
+        return pins
+    pairs = _json_object(manifest).get("file_sha256s")
+    if not isinstance(pairs, list):
+        raise ValueError("forcing_manifest.json has no file hashes")
+    for pair in pairs:
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ValueError("forcing_manifest.json has no file hashes")
+        _remember(pins, pair[0], pair[1])
+    return pins
+
+
+def _refuse_foreign(pins: Mapping[str, str], name: str, digest: str) -> None:
+    pinned = pins.get(name)
+    if pinned is not None and pinned != digest:
+        raise ValueError(f"Pinned RRFS file {name} does not match this revision")
+
+
+def _place(directory: Path, name: str, payload: bytes, pins: Mapping[str, str]) -> None:
     path = directory / name
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise ValueError(f"Expected a regular RRFS file at {path}")
-    if path.is_file() and sha256_file(path) == sha256_hex(payload):
-        return
-    if path.exists():
+    digest = sha256_hex(payload)
+    # A sealed inventory is immutable, so a conflicting revision must not unlink it.
+    _refuse_foreign(pins, name, digest)
+    if path.is_file():
+        if sha256_file(path) == digest:
+            return
         path.unlink()
     put_idempotent(LocalFileStore(directory), name, payload)
 
@@ -153,7 +211,8 @@ def _one_hour(
     keys: tuple[str, str],
     grib_dir: Path,
     scratch: Path,
-) -> dict[str, str]:
+    pins: Mapping[str, str],
+) -> tuple[dict[str, str], str]:
     name = assembled_name(cycle, hour)
     target = grib_dir / name
     resumed = _resume(target, grib_dir / _provenance_name(name), cycle, hour, keys)
@@ -170,28 +229,32 @@ def _one_hour(
         except ValueError:
             resumed = None
         else:
-            return resumed
+            digest = sha256_file(target)
+            _refuse_foreign(pins, name, digest)
+            return resumed, digest
     blob, rows = _assemble(client, mirrors, keys, scratch, cycle, bundle, hour)
-    _install(grib_dir, name, blob)
-    _install(
+    digest = sha256_hex(blob)
+    _refuse_foreign(pins, name, digest)
+    _place(grib_dir, name, blob, pins)
+    _place(
         grib_dir,
         _provenance_name(name),
         json_bytes({"forcing_cycle_utc": format_iso_utc(cycle), "hour": hour, "parts": rows}),
+        pins,
     )
-    return {str(row["key"]): str(row["sha256"]) for row in rows}
+    return {str(row["key"]): str(row["sha256"]) for row in rows}, digest
 
 
-def acquire_rrfs(
+def _acquire_locked(
     client: httpx.Client,
     bundle: LoadedBundle,
     cycle: datetime,
     plan: ForcingSubset,
     grib_dir: Path,
-    through_hour: int | None = None,
+    through_hour: int | None,
 ) -> dict[int, str]:
-    """Install assembled hours. `through_hour` limits a smoke fetch and its inventory."""
     hours = _hours(plan, through_hour)
-    grib_dir.mkdir(parents=True, exist_ok=True)
+    pins = _pins(grib_dir)
     files: dict[int, str] = {}
     source_sha256s: dict[str, str] = {}
     normalized: dict[str, str] = {}
@@ -201,11 +264,13 @@ def acquire_rrfs(
         for hour in hours:
             keys = _keys(plan, hour)
             name = assembled_name(cycle, hour)
-            source_sha256s.update(
-                _one_hour(client, mirrors, bundle, cycle, hour, keys, grib_dir, scratch)
+            parts, digest = _one_hour(
+                client, mirrors, bundle, cycle, hour, keys, grib_dir, scratch, pins
             )
+            source_sha256s.update(parts)
             files[hour] = name
-            normalized[name] = sha256_file(grib_dir / name)
+            # digest is the admitted snapshot, not a later read of the shared path.
+            normalized[name] = digest
     put_idempotent(
         LocalFileStore(grib_dir),
         f"rrfs.{cycle:%Y%m%d%H}.sources-f{hours[-1]:03d}.json",
@@ -218,6 +283,19 @@ def acquire_rrfs(
         ),
     )
     return files
+
+
+def acquire_rrfs(
+    client: httpx.Client,
+    bundle: LoadedBundle,
+    cycle: datetime,
+    plan: ForcingSubset,
+    grib_dir: Path,
+    through_hour: int | None = None,
+) -> dict[int, str]:
+    """Install assembled hours. `through_hour` limits a smoke fetch and its inventory."""
+    with forcing_cycle_lock(grib_dir):
+        return _acquire_locked(client, bundle, cycle, plan, grib_dir, through_hour)
 
 
 def main(argv: list[str] | None = None) -> int:

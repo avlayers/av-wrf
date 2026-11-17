@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,7 +86,12 @@ def test_components_keep_separate_hashes_and_install_together(tmp_path: Path) ->
     provenance = json.loads((tmp_path / f"{name}.provenance.json").read_bytes())
     inventory = json.loads(next(tmp_path.glob("rrfs.*.sources-*.json")).read_bytes())
     assert assembled == prs + sfc
-    assert [part["sha256"] for part in provenance["parts"]] == [sha256_hex(prs), sha256_hex(sfc)]
+    offset = 0
+    for part in provenance["parts"]:
+        chunk = assembled[offset : offset + part["nbytes"]]
+        assert sha256_hex(chunk) == part["sha256"] == inventory["source_sha256s"][part["key"]]
+        offset += part["nbytes"]
+    assert offset == len(assembled)
     assert provenance["parts"][0]["nbytes"] == len(prs)
     assert sha256_hex(prs) != sha256_hex(assembled)
     assert inventory["source_sha256s"][provenance["parts"][0]["key"]] == sha256_hex(prs)
@@ -131,6 +137,82 @@ def test_smoke_hour_does_not_record_the_later_boundary(tmp_path: Path) -> None:
     inventory = json.loads(next(tmp_path.glob("*.sources-*.json")).read_bytes())
     assert all(key.endswith("f000.conus.grib2") for key in inventory["source_sha256s"])
     assert not (tmp_path / "rrfs.t06z.wps.f001.grib2").exists()
+
+
+def test_a_pinned_hour_survives_a_revised_retry(tmp_path: Path) -> None:
+    original = {"prs": b"PRS-revision-A", "sfc": b"SFC-revision-A"}
+    _acquire(tmp_path, original, (0,))
+    grib = next(tmp_path.glob("*.grib2"))
+    installed = grib.read_bytes()
+    provenance = tmp_path / f"{grib.name}.provenance.json"
+    provenance.write_bytes(b"{")
+    with pytest.raises(ValueError, match="Pinned RRFS"):
+        _acquire(tmp_path, {"prs": b"PRS-revision-B", "sfc": b"SFC-revision-B"}, (0,))
+    assert grib.read_bytes() == installed
+    assert provenance.read_bytes() == b"{"
+    inventory = json.loads(next(tmp_path.glob("*.sources-*.json")).read_bytes())
+    assert inventory["normalized_sha256s"][grib.name] == sha256_hex(installed)
+    assert set(inventory["source_sha256s"].values()) == {
+        sha256_hex(original["prs"]),
+        sha256_hex(original["sfc"]),
+    }
+
+
+def _race(directory: Path, revisions: dict[str, tuple[bytes, bytes]]) -> dict[str, object]:
+    barrier = threading.Barrier(len(revisions))
+    outcomes: dict[str, object] = {}
+    bundle = bundle_for_spacing(_ROOT / "config", 0.027)
+    plan = cast(ForcingSubset, _plan(0))
+
+    def fetch(_client: object, _mirrors: object, key: str, **_kwargs: object) -> bytes:
+        prs, sfc = revisions[threading.current_thread().name]
+        return prs if "prslev" in key else sfc
+
+    def acquire(label: str, client: httpx.Client) -> None:
+        barrier.wait()
+        try:
+            outcomes[label] = acquire_rrfs(client, bundle, _CYCLE, plan, directory)
+        except (OSError, ValueError) as exc:
+            outcomes[label] = exc
+
+    with (
+        patch("av_wrf.runner.rrfs_acquire.fetch_ranges", fetch),
+        patch("av_wrf.runner.rrfs_acquire.admit_grib", _admit),
+        httpx.Client() as client,
+    ):
+        threads = []
+        for label in revisions:
+            threads.append(threading.Thread(target=acquire, name=label, args=(label, client)))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    return outcomes
+
+
+def test_concurrent_revisions_keep_one_lineage(tmp_path: Path) -> None:
+    revisions = {
+        "A": (b"PRS-revision-A", b"SFC-revision-A"),
+        "B": (b"PRS-revision-B", b"SFC-revision-B"),
+    }
+    outcomes = _race(tmp_path, revisions)
+    assert len(outcomes) == 2
+    assert any(not isinstance(item, Exception) for item in outcomes.values())
+    grib = next(tmp_path.glob("*.grib2"))
+    installed = grib.read_bytes()
+    matched = [label for label, parts in revisions.items() if parts[0] + parts[1] == installed]
+    assert len(matched) == 1
+    prs, sfc = revisions[matched[0]]
+    inventory = json.loads(next(tmp_path.glob("*.sources-*.json")).read_bytes())
+    provenance = json.loads((tmp_path / f"{grib.name}.provenance.json").read_bytes())
+    assert inventory["normalized_sha256s"][grib.name] == sha256_hex(installed)
+    assert set(inventory["source_sha256s"].values()) == {sha256_hex(prs), sha256_hex(sfc)}
+    offset = 0
+    for part in provenance["parts"]:
+        chunk = installed[offset : offset + part["nbytes"]]
+        assert sha256_hex(chunk) == part["sha256"] == inventory["source_sha256s"][part["key"]]
+        offset += part["nbytes"]
+    assert offset == len(installed)
 
 
 def test_production_acquire_keeps_the_full_lock(tmp_path: Path) -> None:

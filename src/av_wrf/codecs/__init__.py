@@ -19,6 +19,7 @@ from av_wrf.codecs.wrf_nc import (
     verify_wrfout_grid_against_domain,
 )
 from av_wrf.codecs.wrf_nc_grid import (
+    NC_FLOAT_FILL_THRESHOLD,
     check_geogrid_rotation,
     domain_tag,
     select_cycle_wrfout_slices,
@@ -44,6 +45,7 @@ from av_wrf.codecs.zarr_v3 import (
 
 __all__ = [
     "MAX_SPATIAL_TILES_PER_FRAME",
+    "NC_FLOAT_FILL_THRESHOLD",
     "IconGribCutout",
     "RawWrfBaselineInput",
     "RawWrfStepInput",

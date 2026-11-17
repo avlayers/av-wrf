@@ -315,3 +315,9 @@ def open_store(store_uri: str, *, s3: S3Config | None = None) -> ObjectStore:
             raise ValueError("S3 credentials and endpoint configuration are required")
         return S3Store(store_uri, s3)
     raise ValueError(f"Unsupported store scheme '{parsed.scheme}://'; use file:// or s3://")
+
+
+def forcing_cycle_lock(directory: Path) -> AbstractContextManager[None]:
+    """Serialize forcing installation and manifest sealing in one directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    return LocalFileStore(directory).cycle_lock("forcing-cycle")

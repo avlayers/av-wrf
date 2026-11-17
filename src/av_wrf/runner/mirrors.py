@@ -26,6 +26,7 @@ from av_wrf.runner.forcing_rrfs import RRFS
 from av_wrf.runner.store import (
     LocalFileStore,
     _copy_sha256_file,
+    forcing_cycle_lock,
     json_bytes,
     put_idempotent,
     sha256_file,
@@ -166,6 +167,29 @@ def write_forcing_manifest(
     acquisition_inventory: Path | None = None,
 ) -> ForcingManifest:
     """Verify source inventory and coverage, then install the immutable forcing manifest."""
+    # Hold the same lock as RRFS installation so a second revision cannot replace
+    # the files while their hashes are copied into the manifest.
+    with forcing_cycle_lock(grib_dir):
+        return _seal_forcing_manifest(
+            grib_dir,
+            lock,
+            source,
+            files_by_fhr,
+            domain=domain,
+            acquisition_inventory=acquisition_inventory,
+        )
+
+
+def _seal_forcing_manifest(
+    grib_dir: Path,
+    lock: RunLock,
+    source: ForcingProfile,
+    files_by_fhr: Mapping[int, Path],
+    *,
+    domain: DomainProfile,
+    acquisition_inventory: Path | None = None,
+) -> ForcingManifest:
+    """Hash the staged files and install forcing_manifest.json."""
     recipe, cycle, req_fhrs = resolve_forcing_window(lock, source, domain=domain)
     if tuple(sorted(files_by_fhr)) != req_fhrs:
         raise ValueError("Staged forcing forecast hours must match the RunLock")
