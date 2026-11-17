@@ -18,11 +18,12 @@ from av_wrf.core import (  # noqa: E402
     compile_wps_namelist_sections,
     compile_wrf_namelist_sections,
     compile_wrf_run_namelist,
+    native_decomposition,
     nesting_active,
     render_fortran_namelist,
     required_forcing_forecast_hours,
 )
-from av_wrf.runner import load_bundle  # noqa: E402
+from av_wrf.runner import LoadedBundle, load_bundle  # noqa: E402
 
 PROFILE_TO_NAMELIST_KEY: dict[str, tuple[str, str]] = {
     "history_interval_min": ("time_control", "history_interval"),
@@ -82,6 +83,14 @@ PROFILE_TO_NAMELIST_KEY: dict[str, tuple[str, str]] = {
 }
 
 
+def _nested_product() -> str:
+    for name in sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml")):
+        bundle = load_bundle(ROOT / "config", name)
+        if nesting_active(bundle.domain, bundle.primary_source.grid_spacing_deg):
+            return name
+    raise AssertionError("expected a product whose primary source nests")
+
+
 def _three_hour_candidate() -> str:
     for name in sorted(path.stem for path in (ROOT / "config" / "products").glob("*.yaml")):
         bundle = load_bundle(ROOT / "config", name)
@@ -90,6 +99,28 @@ def _three_hour_candidate() -> str:
         ):
             return name
     raise AssertionError("expected a nested primary with a 3-hour candidate")
+
+
+def _run_lock(bundle: LoadedBundle, mpi_ranks: int) -> RunLock:
+    return RunLock(
+        product_id=bundle.product.product_id,
+        model_id=bundle.product.model_id,
+        cycle_partition="20261112/00",
+        attempt_id="att-01",
+        forcing_cycle_utc="2026-11-11T18:00:00Z",
+        wrf_init_utc="2026-11-11T18:00:00Z",
+        publish_origin_utc="2026-11-12T00:00:00Z",
+        spinup_hours=6,
+        lead_hours=(1, 2, 16),
+        forcing_profile_id=bundle.primary_source.profile_id,
+        domain_profile_id=bundle.domain.profile_id,
+        science_profile_id=bundle.science.profile_id,
+        output_profile_id=bundle.output.profile_id,
+        config_sha256="abc",
+        geog_bundle_sha256="def",
+        build_manifest=BuildManifest("sha256:1", "w", "p", (), "gf", "mpi"),
+        mpi_ranks=mpi_ranks,
+    )
 
 
 class TestNamelist(unittest.TestCase):
@@ -213,7 +244,7 @@ class TestNamelist(unittest.TestCase):
             self.assertNotIn("start_date", sections["share"])
 
     def test_wide_lambert_grid_limits_timestep_at_its_corners(self) -> None:
-        product = next((ROOT / "config" / "products").glob("*.yaml")).stem
+        product = sorted((ROOT / "config" / "products").glob("*.yaml"))[0].stem
         bundle = load_bundle(ROOT / "config", product)
         domain = dataclasses.replace(
             bundle.domain,
@@ -224,11 +255,56 @@ class TestNamelist(unittest.TestCase):
             center_lat_deg=55.0,
             std_parallel_1_deg=54.0,
             std_parallel_2_deg=56.0,
+            parent_grid_ratio=1,
+            parent_halo_cells=0,
         )
         with self.assertRaisesRegex(ValueError, "exceeds 6\\*dx_phys"):
             compile_wrf_namelist_sections(
                 domain, dataclasses.replace(bundle.science, time_step_s=71), bundle.primary_source
             )
+
+    def test_source_aware_compiler_derives_the_topology_it_emits(self) -> None:
+        bundle = load_bundle(ROOT / "config", _nested_product())
+        nested = compile_wrf_namelist_sections(bundle.domain, bundle.science, bundle.primary_source)
+        self.assertEqual(nested["domains"]["max_dom"], 2)
+        self.assertIsInstance(nested["domains"]["e_we"], tuple)
+        single_domain = dataclasses.replace(
+            bundle.domain, parent_grid_ratio=1, parent_halo_cells=0, nest_trigger_ratio=20.0
+        )
+        single = compile_wrf_namelist_sections(single_domain, bundle.science, bundle.primary_source)
+        self.assertEqual(single["domains"]["max_dom"], 1)
+        self.assertIsInstance(single["domains"]["e_we"], int)
+
+    def test_native_decomposition_matches_wrf_default_mesh(self) -> None:
+        for ranks, mesh in {
+            1: (1, 1),
+            2: (1, 2),
+            3: (1, 3),
+            4: (2, 2),
+            8: (2, 4),
+            12: (3, 4),
+            16: (4, 4),
+        }.items():
+            with self.subTest(ranks=ranks):
+                self.assertEqual(native_decomposition(ranks), mesh)
+        with self.assertRaisesRegex(ValueError, ">= 1"):
+            native_decomposition(0)
+
+    def test_every_product_compiles_for_real_and_integration_at_two_rank_counts(self) -> None:
+        for path in sorted((ROOT / "config" / "products").glob("*.yaml")):
+            bundle = load_bundle(ROOT / "config", path.stem)
+            for ranks in (1, 8):
+                lock = _run_lock(bundle, ranks)
+                for for_real in (True, False):
+                    with self.subTest(product=path.stem, ranks=ranks, for_real=for_real):
+                        sections = compile_wrf_run_namelist(
+                            bundle.domain,
+                            bundle.science,
+                            lock,
+                            bundle.primary_source,
+                            for_real=for_real,
+                        )
+                        self.assertIn("domains", sections)
 
 
 if __name__ == "__main__":

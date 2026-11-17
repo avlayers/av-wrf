@@ -1,0 +1,55 @@
+name: notify
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: 'Product id under config/products'
+        required: true
+        type: string
+      cycle:
+        description: 'Publish origin ISO UTC or YYYYMMDD/HH'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRODUCT: ${{ inputs.product }}
+      CYCLE: ${{ inputs.cycle }}
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      AV_WRF_WEBHOOK_URL: ${{ secrets.AV_WRF_WEBHOOK_URL }}
+      AV_WRF_WEBHOOK_TOKEN: ${{ secrets.AV_WRF_WEBHOOK_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.12
+
+      - run: uv sync --locked
+
+      - name: Reconcile consumer webhook
+        run: |
+          set -euo pipefail
+          json=$(uv run av-wrf reconcile --product "$PRODUCT" --cycle "$CYCLE")
+          printf '%s' "$json" | jq -e '.status == "reconciled"'

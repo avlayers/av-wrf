@@ -28,6 +28,13 @@ IFS_GUST_COEFF = 7.71
 VON_KARMAN = 0.40
 ZERO_CELSIUS_K = 273.15
 WATER_DRY_AIR_MOLAR_MASS_RATIO = 0.622
+# Lowest vapor admitted from metgrid SPECHUMD and from wrfout QVAPOR.
+# real.exe converts specific humidity with q / (1 - q):
+# https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
+MIN_WATER_VAPOR_KGKG = -1.0e-4
+# MYNN sfclay extrapolates Q2 and can cross zero at one cell over cold terrain.
+# https://github.com/wrf-model/WRF/blob/v4.8.0/phys/module_sf_mynn.F
+MIN_DIAGNOSTIC_Q2_KGKG = -1.0e-2
 # windy-av-layer/packages/soaring/src/parameters.ts, expressed in wire units.
 _CONSUMER_RANGES = {
     "surface_pressure_pa": (10_000.0, 110_000.0),

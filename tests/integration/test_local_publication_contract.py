@@ -270,7 +270,7 @@ def test_pruned_retry_finds_matching_receipt_in_allowed_namespace(
     ):
         store.delete_prefix(live_key)
         store.put_if_absent(live_key, json_bytes(wrong.to_doc()))
-        with pytest.raises(ValueError, match="Published receipt provenance"):
+        with pytest.raises(ValueError, match=r"canonical metadata|Published receipt provenance"):
             retry(allow_synthetic=True)
 
 

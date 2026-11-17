@@ -47,6 +47,88 @@ class TestCliStorage(TestCase):
                 json.loads(stdout.getvalue())["latest"], ["outside_live_window", "newer"]
             )
 
+    def test_recover_uses_destination_store_without_stage(self) -> None:
+        product = next((CONFIG / "products").glob("*.yaml")).stem
+        hour = load_bundle(CONFIG, product).product.publish_origin_hour_utc
+        cycle = f"20261112/{hour:02d}"
+        args = ["recover", "--config-dir", str(CONFIG), "--product", product, "--cycle", cycle]
+        with TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "destination"
+            env = load_runtime_env({"AV_WRF_STORE_URI": destination.as_uri()})
+            receipt = SimpleNamespace(
+                attempt_id="gha-1-1", publish_origin_utc=f"2026-11-12T{hour:02d}:00:00Z"
+            )
+            with (
+                patch("av_wrf.cli.main.load_runtime_env", return_value=env),
+                patch(
+                    "av_wrf.cli.main.recover_committed_cycle",
+                    return_value=(receipt, "advanced"),
+                ),
+                redirect_stdout(StringIO()) as stdout,
+            ):
+                self.assertEqual(main(args), 0)
+            self.assertEqual(
+                json.loads(stdout.getvalue()),
+                {
+                    "status": "recovered",
+                    "cycle": cycle,
+                    "attempt": "gha-1-1",
+                    "latest": ["advanced"],
+                },
+            )
+
+    def test_recover_probe_reports_absent_without_failing(self) -> None:
+        product = next((CONFIG / "products").glob("*.yaml")).stem
+        hour = load_bundle(CONFIG, product).product.publish_origin_hour_utc
+        args = [
+            "recover",
+            "--config-dir",
+            str(CONFIG),
+            "--product",
+            product,
+            "--cycle",
+            f"20261112/{hour:02d}",
+            "--probe",
+        ]
+        with TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "destination"
+            env = load_runtime_env({"AV_WRF_STORE_URI": destination.as_uri()})
+            with (
+                patch("av_wrf.cli.main.load_runtime_env", return_value=env),
+                patch(
+                    "av_wrf.cli.main.recover_committed_cycle",
+                    return_value=None,
+                ),
+                redirect_stdout(StringIO()) as stdout,
+            ):
+                self.assertEqual(main(args), 0)
+            self.assertEqual(json.loads(stdout.getvalue())["status"], "absent")
+
+    def test_recover_without_probe_rejects_absent(self) -> None:
+        product = next((CONFIG / "products").glob("*.yaml")).stem
+        hour = load_bundle(CONFIG, product).product.publish_origin_hour_utc
+        args = [
+            "recover",
+            "--config-dir",
+            str(CONFIG),
+            "--product",
+            product,
+            "--cycle",
+            f"20261112/{hour:02d}",
+        ]
+        with TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "destination"
+            env = load_runtime_env({"AV_WRF_STORE_URI": destination.as_uri()})
+            with (
+                patch("av_wrf.cli.main.load_runtime_env", return_value=env),
+                patch(
+                    "av_wrf.cli.main.recover_committed_cycle",
+                    return_value=None,
+                ),
+                self.assertRaisesRegex(FileNotFoundError, "Missing _ready.json"),
+            ):
+                main(args)
+
     def test_reconcile_rejects_missing_target_and_wrong_attempt_before_claim(self) -> None:
         product = next((CONFIG / "products").glob("*.yaml")).stem
         hour = load_bundle(CONFIG, product).product.publish_origin_hour_utc

@@ -13,6 +13,7 @@ spinup_hours: 6
 forcing_cycle_hour_utc: 18
 publish_origin_hour_utc: 0
 local_deadline_hhmm: "08:30"
+enforce_local_deadline: true
 min_horizon_hours: 36
 max_cycle_age_hours: 6
 schedule_cron_utc: "30 21 * * *"

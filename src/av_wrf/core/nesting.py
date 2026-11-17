@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from av_wrf.contracts import DomainProfile
+from av_wrf.contracts import DomainProfile, ScienceProfile
 
 # Conservative meters per degree at the equator; the meridional spacing of every supported
 # source (GFS 0.25 deg, IFS 0.1 deg, ICON-EU 0.0625 deg) is at or below this bound.
@@ -27,6 +27,44 @@ def parent_domain_shape(domain: DomainProfile) -> tuple[int, int]:
     coarse_nx, coarse_ny = (domain.e_we - 1) // r, (domain.e_sn - 1) // r
     halo = 2 * domain.parent_halo_cells
     return coarse_nx + halo + 1, coarse_ny + halo + 1
+
+
+def resolved_domains(
+    domain: DomainProfile, source_grid_spacing_deg: float
+) -> tuple[DomainProfile, ...]:
+    """Return active domains outer-to-inner, enforcing one supported parent at most."""
+    ratio = domain.parent_grid_ratio
+    if ratio <= 1:
+        return (domain,)
+    if (domain.e_we - 1) % ratio or (domain.e_sn - 1) % ratio:
+        raise ValueError("child (e_we - 1) and (e_sn - 1) must divide by parent_grid_ratio")
+    if not nesting_active(domain, source_grid_spacing_deg):
+        return (domain,)
+    return (forcing_domain(domain, source_grid_spacing_deg), domain)
+
+
+def validate_resolved_topology(
+    domain: DomainProfile, science: ScienceProfile, source_grid_spacing_deg: float
+) -> None:
+    """Admit every active domain, parent clock and the residual source-to-outer jump."""
+    from av_wrf.core.physics_namelist import validate_science_profile
+
+    domains = resolved_domains(domain, source_grid_spacing_deg)
+    outer = domains[0]
+    if len(domains) == 2:
+        if domain.parent_halo_cells < science.spec_bdy_width:
+            raise ValueError("parent_halo_cells must clear the specified boundary zone")
+        scaled = dataclasses.replace(
+            science,
+            time_step_s=science.time_step_s * domain.parent_grid_ratio,
+            min_time_step_s=science.min_time_step_s * domain.parent_grid_ratio,
+            max_time_step_s=science.max_time_step_s * domain.parent_grid_ratio,
+        )
+        validate_science_profile(scaled, outer, published=False)
+    source_m = source_grid_spacing_deg * M_PER_DEG_EQUATORIAL
+    if source_m > domain.nest_trigger_ratio * max(outer.dx_m, outer.dy_m):
+        raise ValueError("source-to-outer-domain jump needs an unsupported additional nest")
+    validate_science_profile(science, domain)
 
 
 def forcing_domain(domain: DomainProfile, source_grid_spacing_deg: float) -> DomainProfile:
@@ -52,4 +90,6 @@ __all__ = [
     "forcing_domain",
     "nesting_active",
     "parent_domain_shape",
+    "resolved_domains",
+    "validate_resolved_topology",
 ]

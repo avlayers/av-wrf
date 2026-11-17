@@ -169,6 +169,57 @@ class TestPostFrame(unittest.TestCase):
                 sci,
             )
 
+    def test_gross_surface_and_cloud_mutations_fail_before_clipping(self) -> None:
+        prod_id = sorted((ROOT / "config" / "products").glob("*.yaml"))[0].stem
+        bundle = load_bundle(ROOT / "config", prod_id)
+        dom = dataclasses.replace(
+            bundle.domain,
+            e_we=6,
+            e_sn=5,
+            bdy_trim_cells=1,
+            e_vert=5,
+            exported_levels_k=3,
+            min_bl_levels_2km_agl=3,
+        )
+        sci = dataclasses.replace(bundle.science, base_temp_k=290.0)
+        f000 = _synthetic_step(
+            1_000_000, "2026-11-12T00:00:00Z", 4, 5, 4, achfx=1.0e7, rainnc=98.0, i_rainnc=0
+        )
+        base0 = build_accum_baseline(f000, trim=1)
+        f001 = _synthetic_step(
+            1_003_600, "2026-11-12T01:00:00Z", 4, 5, 4, achfx=1.072e7, rainnc=1.6, i_rainnc=1
+        )
+
+        def mass2(value: float) -> CompMass2D:
+            return CompMass2D(Slab2DF32.from_values(4, 5, [value] * 20))
+
+        def mass3(value: float) -> CompMass3D:
+            return CompMass3D(Slab3DF32.from_values(4, 4, 5, [value] * 80))
+
+        with self.subTest(field="q2_kgkg"), self.assertRaises(ValueError):
+            post_frame(base0, dataclasses.replace(f001, q2_kgkg=mass2(-0.1)), dom, sci)
+        with self.subTest(field="ustar_mps"), self.assertRaises(ValueError):
+            post_frame(base0, dataclasses.replace(f001, ustar_mps=mass2(-3.0)), dom, sci)
+        with self.assertRaises(ValueError):
+            post_frame(base0, dataclasses.replace(f001, cldfra=mass3(1.2)), dom, sci)
+        with self.assertRaises(ValueError):
+            post_frame(
+                base0,
+                dataclasses.replace(
+                    f001,
+                    q2_kgkg=mass2(-0.1),
+                    ustar_mps=mass2(-3.0),
+                    cldfra=mass3(1.2),
+                ),
+                dom,
+                sci,
+            )
+        for undershoot in (-5e-5, -1.2e-3):
+            out, _ = post_frame(
+                base0, dataclasses.replace(f001, q2_kgkg=mass2(undershoot)), dom, sci
+            )
+            self.assertEqual(out.fields_2d["spfh_2m_kgkg"].at(0, 0), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

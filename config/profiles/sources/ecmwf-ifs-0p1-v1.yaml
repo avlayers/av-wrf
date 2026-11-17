@@ -8,8 +8,12 @@ provider: ECMWF
 vtable_name: Vtable.ECMWF
 interval_seconds: 10800
 grid_spacing_deg: 0.1
+# Open Data vertical resolution is only ~14 pressure levels (`metgrid_levels: 15`).
+# This is a known limitation for 55-level hybrid initialization; prefer GFS or ICON
+# when the vertical column matters; native qualification is still required.
 metgrid_levels: 15
 metgrid_soil_levels: 4
+# Estimated; update after production lag statistics.
 source_ready_lag_p95_hours: 8.5
 mirrors:
   - https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com

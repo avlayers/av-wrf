@@ -12,6 +12,7 @@ import numpy.typing as npt
 
 from av_wrf.contracts import DomainProfile, ScienceProfile, format_iso_utc, parse_iso_utc
 from av_wrf.core import (
+    MIN_WATER_VAPOR_KGKG,
     computational_grid_origin_xy_m,
     lambert_grid_to_earth_trig,
     lambert_xy_m_to_latlon,
@@ -27,7 +28,7 @@ GRID_COORD_TOL_DEG = 5.0e-4
 _WPS_FIELD_LIMITS = {
     "SM": (0.0, 1.0),
     "SOILM": (0.0, 1.0),
-    "SPECHUMD": (0.0, math.nextafter(1.0, 0.0)),
+    "SPECHUMD": (MIN_WATER_VAPOR_KGKG, math.nextafter(1.0, 0.0)),
 }
 _WPS_FIELD_FLAGS = {
     "LAKE_DEPTH": "FLAG_LAKE_DEPTH",
@@ -44,18 +45,20 @@ def verify_wps_fields(ds: netCDF4.Dataset, path: Path, fields: tuple[str, ...]) 
         var = ds.variables.get(name)
         if not isinstance(var, netCDF4.Variable):
             raise ValueError(f"Missing required WPS field {name} in {path}")
-        # real.exe uses FLAG_SH and converts specific humidity as q / (1 - q).
-        # https://github.com/wrf-model/WRF/blob/v4.8.0/dyn_em/module_initialize_real.F
         flag = _WPS_FIELD_FLAGS.get(name)
         if flag is not None and getattr(ds, flag, 0) != 1:
             raise ValueError(f"Missing WPS {flag}=1 in {path}")
         values = var[:]
         lo, hi = _WPS_FIELD_LIMITS.get(name, (-1e19, 1e19))
-        if (
-            np.ma.is_masked(values)
-            or not lo <= float(np.min(values)) <= float(np.max(values)) <= hi
-        ):
-            raise ValueError(f"Invalid values in WPS field {name} in {path}")
+        if np.ma.is_masked(values):
+            raise ValueError(f"Invalid values in WPS field {name} in {path}: masked")
+        vmin = float(np.min(values))
+        vmax = float(np.max(values))
+        if not lo <= vmin <= vmax <= hi:
+            raise ValueError(
+                f"Invalid values in WPS field {name} in {path}: "
+                f"[{vmin}, {vmax}] outside [{lo}, {hi}]"
+            )
 
 
 def verify_local_wrf_nc(nc_path: Path) -> str:

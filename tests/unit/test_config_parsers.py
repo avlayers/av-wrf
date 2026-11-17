@@ -11,6 +11,7 @@ from av_wrf.contracts import (
     ScienceProfile,
     parse_domain_profile,
     parse_forcing_profile,
+    parse_product_spec,
     parse_science_profile,
 )
 from av_wrf.runner import parse_declarative_yaml
@@ -80,6 +81,19 @@ class TestConfigParsers(TestCase):
         self.assertEqual(science.min_time_step_s, 6)
         self.assertEqual(science.max_time_step_s, 17)
         self.assertEqual(science.lakedepth_default_m, 50.0)
+
+    def test_product_deadline_enforcement_defaults_true_and_accepts_false(self) -> None:
+        raw = parse_declarative_yaml(sorted((CONFIG.parent / "products").glob("*.yaml"))[0])
+        raw.pop("enforce_local_deadline", None)
+        self.assertTrue(parse_product_spec(raw).enforce_local_deadline)
+        self.assertTrue(
+            parse_product_spec({**raw, "enforce_local_deadline": True}).enforce_local_deadline
+        )
+        self.assertFalse(
+            parse_product_spec({**raw, "enforce_local_deadline": False}).enforce_local_deadline
+        )
+        with self.assertRaises(TypeError):
+            parse_product_spec({**raw, "enforce_local_deadline": "yes"})
 
     def test_explicit_options_override_defaults_and_reject_wrong_types(self) -> None:
         domain = parse_declarative_yaml(next((CONFIG / "domains").glob("*.yaml")))

@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 from dataclasses import replace
-from math import isqrt
 from pathlib import Path
 
 from av_wrf.contracts import (
@@ -17,10 +16,12 @@ from av_wrf.contracts import (
     RunLock,
 )
 from av_wrf.core import (
+    MIN_PATCH_CELLS,
     MYNN_HISTORY_FILE,
     MYNN_HISTORY_TEXT,
     compile_wps_namelist_sections,
     compile_wrf_run_namelist,
+    native_decomposition,
     nesting_active,
     parent_domain_shape,
     published_grid_origin_xy_m,
@@ -39,13 +40,26 @@ from av_wrf.runner.mirrors import find_forcing_recipe, forcing_subset
 from av_wrf.runner.store import ObjectStore, json_bytes, run_lock_key, sha256_file
 
 
-def check_product_config(config_root: Path, product_id: str) -> ProductCheckSummary:
+def check_product_config(
+    config_root: Path, product_id: str, mpi_ranks: int = 4
+) -> ProductCheckSummary:
     """Load, cross-reference, and validate a product, vertical stretch, and Zarr v3 store."""
     _product_namespaces(config_root)
-    return _check_bundle(load_bundle(config_root, product_id))
+    return _check_bundle(load_bundle(config_root, product_id), mpi_ranks)
 
 
-def _check_bundle(b: LoadedBundle) -> ProductCheckSummary:
+def _mesh_shape(b: LoadedBundle) -> tuple[int, int]:
+    mesh_we, mesh_sn = b.domain.e_we, b.domain.e_sn
+    if nesting_active(b.domain, b.primary_source.grid_spacing_deg):
+        parent_we, parent_sn = parent_domain_shape(b.domain)
+        return min(mesh_we, parent_we), min(mesh_sn, parent_sn)
+    return mesh_we, mesh_sn
+
+
+def _check_bundle(b: LoadedBundle, mpi_ranks: int) -> ProductCheckSummary:
+    if isinstance(mpi_ranks, bool) or mpi_ranks < 1:
+        raise ValueError("RunLock mpi_ranks must be >= 1")
+    _validate_mpi_mesh(mpi_ranks, *_mesh_shape(b))
     remaining_floor, bl_levels, leads = validate_bundle(b)
     x0_m, y0_m = published_grid_origin_xy_m(b.domain)
     return ProductCheckSummary(
@@ -64,10 +78,11 @@ def _check_bundle(b: LoadedBundle) -> ProductCheckSummary:
     )
 
 
-def check_all_products(config_root: Path) -> tuple[ProductCheckSummary, ...]:
+def check_all_products(config_root: Path, mpi_ranks: int = 4) -> tuple[ProductCheckSummary, ...]:
     """Discover and validate all configured product YAMLs under config_root/products."""
     return tuple(
-        _check_bundle(load_bundle(config_root, p)) for p in _product_namespaces(config_root)
+        _check_bundle(load_bundle(config_root, p), mpi_ranks)
+        for p in _product_namespaces(config_root)
     )
 
 
@@ -127,13 +142,13 @@ def verify_producer_sha256(lock: RunLock) -> None:
 
 
 def _validate_mpi_mesh(mpi_ranks: int, e_we: int, e_sn: int) -> None:
-    # WRF chooses the closest factor pair, with the smaller factor in X.
+    # WRF's RSL_LITE requires at least ten cells per patch.
     # https://github.com/wrf-model/WRF/blob/v4.8.0/external/RSL_LITE/module_dm.F
-    max_x, max_y = e_we // 10, e_sn // 10
+    max_x, max_y = e_we // MIN_PATCH_CELLS, e_sn // MIN_PATCH_CELLS
     if mpi_ranks > max_x * max_y:
         raise ValueError("RunLock mpi_ranks exceeds WRF's 10-cell minimum patch width")
-    ranks_x = next(x for x in range(isqrt(mpi_ranks), 0, -1) if mpi_ranks % x == 0)
-    if ranks_x > max_x or mpi_ranks // ranks_x > max_y:
+    nproc_x, nproc_y = native_decomposition(mpi_ranks)
+    if e_we // nproc_x < MIN_PATCH_CELLS or e_sn // nproc_y < MIN_PATCH_CELLS:
         raise ValueError("RunLock mpi_ranks creates a WRF patch narrower than 10 cells")
 
 
@@ -149,9 +164,7 @@ def _build_run_lock(
     if isinstance(mpi_ranks, bool) or mpi_ranks < 1:
         raise ValueError("RunLock mpi_ranks must be >= 1")
     nested = nesting_active(b.domain, b.primary_source.grid_spacing_deg)
-    _validate_mpi_mesh(mpi_ranks, b.domain.e_we, b.domain.e_sn)
-    if nested:
-        _validate_mpi_mesh(mpi_ranks, *parent_domain_shape(b.domain))
+    _validate_mpi_mesh(mpi_ranks, *_mesh_shape(b))
     if build_manifest.oci_digest != "host-dev-unpinned" and (
         not re.fullmatch(r"sha256:[0-9a-f]{64}", build_manifest.oci_digest)
         or not re.fullmatch(r"[0-9a-f]{64}", geog_bundle_sha256)

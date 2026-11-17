@@ -6,7 +6,7 @@ grid_spacing_deg: 0.0625
 metgrid_levels: 75
 metgrid_soil_levels: 8
 use_sh_qv: true
-# Conservative pilot allowance pending prospective arrival measurements.
+# Estimated; update after production lag statistics.
 source_ready_lag_p95_hours: 3.25
 mirrors:
   - https://opendata.dwd.de/weather/nwp/v1

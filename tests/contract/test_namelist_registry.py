@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 
 from av_wrf.contracts import BuildManifest, RunLock
-from av_wrf.core import compile_wrf_run_namelist
+from av_wrf.core import compile_wrf_run_namelist, validate_resolved_topology
 from av_wrf.core.namelist import NamelistSections
 from av_wrf.runner import load_bundle
 
@@ -91,14 +91,19 @@ def _compiled_cases() -> Iterator[NamelistSections]:
         )
         for source in (bundle.primary_source, bundle.candidate_source):
             for variant in variants:
+                try:
+                    validate_resolved_topology(domain, variant, source.grid_spacing_deg)
+                except ValueError:
+                    continue
                 for for_real in (False, True):
-                    yield compile_wrf_run_namelist(
-                        domain,
-                        variant,
-                        replace(lock, forcing_profile_id=source.profile_id),
-                        source,
-                        for_real=for_real,
-                    )
+                    for ranks in (1, 8):
+                        yield compile_wrf_run_namelist(
+                            domain,
+                            variant,
+                            replace(lock, forcing_profile_id=source.profile_id, mpi_ranks=ranks),
+                            source,
+                            for_real=for_real,
+                        )
 
 
 class TestNamelistRegistry(TestCase):

@@ -25,6 +25,11 @@ class RuntimeEnv:
     s3: S3Config | None = None
 
 
+def _optional_int(env: Mapping[str, str], key: str) -> int | None:
+    raw = env.get(key, "").strip()
+    return int(raw) if raw else None
+
+
 def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnv:
     """Parse process environment once into a validated frozen RuntimeEnv."""
     env = os.environ if environ is None else environ
@@ -41,8 +46,7 @@ def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnv:
     manifest_path = env.get("AV_WRF_BUILD_MANIFEST", "/opt/av-wrf/build-manifest.json").strip()
     oci_digest = env.get("AV_WRF_OCI_DIGEST", "").strip()
     solver_prefix = env.get("AV_WRF_SOLVER_PREFIX", "/opt/av-wrf").strip() or "/opt/av-wrf"
-    timeout = env.get("AV_WRF_NATIVE_TIMEOUT_S", "").strip()
-    native_timeout_s = int(timeout) if timeout else None
+    native_timeout_s = _optional_int(env, "AV_WRF_NATIVE_TIMEOUT_S")
     if native_timeout_s is not None and native_timeout_s < 1:
         raise ValueError("AV_WRF_NATIVE_TIMEOUT_S must be positive")
     region = env.get("AWS_REGION", "us-east-1").strip()

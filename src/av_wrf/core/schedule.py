@@ -125,7 +125,7 @@ def validate_horizon_policy(
             "before the live cycle expires"
         )
     clock = _briefing_clock(product)
-    if publish_origin_utc is not None:
+    if product.enforce_local_deadline and publish_origin_utc is not None:
         origin = parse_iso_utc(publish_origin_utc)
         until_briefing = _briefing_deadline_utc(origin, clock) - (origin + cron_after_origin)
         if until_briefing < margin:
@@ -149,11 +149,12 @@ def is_cycle_live_fresh(
         hours=product.spinup_hours, minutes=MAX_FUTURE_CLOCK_SKEW_MINUTES
     )
     latest_live_age = _latest_live_age_hours(product, output)
-    return (
-        latest_live_age >= 0
-        and earliest_live_dt <= now_dt <= origin_dt + timedelta(hours=latest_live_age)
-        and now_dt <= _briefing_deadline_utc(origin_dt, _briefing_clock(product))
+    within_age = latest_live_age >= 0 and (
+        earliest_live_dt <= now_dt <= origin_dt + timedelta(hours=latest_live_age)
     )
+    if not product.enforce_local_deadline:
+        return within_age
+    return within_age and now_dt <= _briefing_deadline_utc(origin_dt, _briefing_clock(product))
 
 
 def parse_cycle_arg(raw_cycle: str, product: ProductSpec) -> tuple[str, str]:

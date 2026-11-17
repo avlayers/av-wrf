@@ -27,6 +27,7 @@ from av_wrf.core.grid import (
 )
 from av_wrf.core.thermo import (
     G0_MPS2,
+    MIN_WATER_VAPOR_KGKG,
     afwa_mslp_vec,
     geometric_w_to_omega_vec,
     groom_f32_buf,
@@ -131,6 +132,9 @@ def _cloud_and_thermo(
     p_all, p_buf = _validate_and_groom_3d_pressure(raw, psfc, trim, k_exp)
     cloud_shape = (raw.cldfra.nz, ny, nx)
     cloud = _mass_view(raw.cldfra, trim, cloud_shape)
+    # Cloud fraction is bounded by definition; tolerate only float32 round-off.
+    if bool(np.any(cloud < 0.0)) or bool(np.any(cloud > 1.0 + 1e-6)):
+        raise ValueError("CLDFRA outside [0, 1] in post_frame")
     cld_tot, cld_low = max_random_cloud_cover_pct(
         cloud, p_all, _crop_sponge_2d_view(raw.psfc_pa, trim)
     )
@@ -144,7 +148,7 @@ def _cloud_and_thermo(
     t_buf = groom_f32_buf(tk, 15)
     validate_thermodynamic_field("temp_k", np.frombuffer(t_buf, np.float32))
     qv_in = _mass_view(raw.qvapor_kgkg, trim, shp3).astype(np.float64)
-    if bool(np.any(qv_in < -1e-4)):
+    if bool(np.any(qv_in < MIN_WATER_VAPOR_KGKG)):
         raise ValueError("Large negative QVAPOR encountered in post_frame")
     spfh = mixing_ratio_to_spfh_vec(qv_in)
     if bool(np.any(spfh >= 1.0)):

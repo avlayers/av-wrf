@@ -2,12 +2,14 @@
 # Assumptions & Soaring Sensitivities:
 # - Convection-permitting (`cu_physics: 0`, Thompson `mp_physics: 8`): deep convection is resolved
 #   on the 3 km grid. WRF 4.8 couples MYNN subgrid clouds to radiation with `icloud: 1`.
+#   Gray-zone experiment: `cu_physics: 0` at 3 km; skill is unverified.
 # - Topographic shortwave (`ra_sw_physics: 4`, `radt_min: 3`, `slope_rad: 1`, `topo_shading: 1`,
 #   `shadlen_m: 25000.0`): 3 km slope aspect and 25 km valley shadows drive Noah-MP `ACHFX` and
 #   `T2` directly, replacing Dr. Jack RASP post-hoc `sfcsun` without consumer double-counting.
 # - Steep-slope stability: `hybrid_opt: 2, etac: 0.2` (verified fold-free up to 5,137 m Ararat),
 #   `diff_opt: 2, km_opt: 4` physical-space 3D deformation diffusion, `epssm: 0.3` acoustic
 #   off-centering, `w_damping: 1`, and 5 km implicit Rayleigh upper sponge (`damp_opt: 3`).
+#   Steep-terrain baseline: `hybrid_opt: 2`, `etac: 0.2`; qualification is pending.
 # - AFWA diagnostics: `afwa_diag_opt: 1` and `afwa_buoy_opt: 1` provide most-unstable CAPE.
 # - Lateral boundary `interval_seconds` lives on each `ForcingProfile` (`3600` for GFS, `10800` IFS).
 # References:

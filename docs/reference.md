@@ -8,7 +8,7 @@ python3 scripts/generate_reference.py
 
 ## CLI Subcommands
 
-Source: [`src/av_wrf/cli/main.py`](../src/av_wrf/cli/main.py).
+Source: [`src/av_wrf/cli/parsers.py`](../src/av_wrf/cli/parsers.py).
 
 - `av-wrf check`: Validate configured product(s), vertical stretch, namelist, and Zarr v3.
 - `av-wrf plan`: Resolve cycle timestamps and persist an immutable run.lock.json.
@@ -19,6 +19,7 @@ Source: [`src/av_wrf/cli/main.py`](../src/av_wrf/cli/main.py).
 - `av-wrf solve`: Execute WPS ungrib/metgrid + MPI real/wrf and bind solver_receipt.json.
 - `av-wrf post`: Stage wrfout frames into attempt-scoped sharded wrf-zarr-v3 arrays.
 - `av-wrf publish`: Verify full RunLock horizon, promote Zarr store, and CAS latest.json.
+- `av-wrf recover`: Validate a committed cycle and advance latest without recomputing it.
 - `av-wrf reconcile`: Dispatch pending _ready.json webhook idempotently (fail closed).
 
 ## Configured Products
@@ -28,7 +29,7 @@ The effective remaining-horizon floor also reflects `max_cycle_age_hours`.
 The configured `min_horizon_hours` sets the lower bound.
 
 - `wrf-armenia-3km-dwd`: published grid `204 x 174` (`x0M = -304500.0`, `y0M = -259500.0`), primary `dwd-icon-eu-v1` (candidate `noaa-gfs-0p25-v1`, recipe available), `72` leads, `17` BL levels (`0-2 km` AGL), remaining-horizon floor `66 h`, `time_step = 15 s`.
-- `wrf-armenia-3km`: published grid `204 x 174` (`x0M = -304500.0`, `y0M = -259500.0`), primary `noaa-gfs-0p25-v1` (candidate `ecmwf-ifs-0p1-v1`, recipe available), `72` leads, `17` BL levels (`0-2 km` AGL), remaining-horizon floor `66 h`, `time_step = 15 s`.
+- `wrf-armenia-3km`: published grid `204 x 174` (`x0M = -304500.0`, `y0M = -259500.0`), primary `dwd-icon-eu-v1` (candidate `noaa-gfs-0p25-v1`, recipe available), `72` leads, `17` BL levels (`0-2 km` AGL), remaining-horizon floor `54 h`, `time_step = 15 s`.
 - `wrf-armenia-pilot-3km-dwd`: published grid `84 x 84` (`x0M = -124500.0`, `y0M = -124500.0`), primary `dwd-icon-eu-v1` (candidate `noaa-gfs-0p25-v1`, recipe available), `16` leads, `17` BL levels (`0-2 km` AGL), remaining-horizon floor `10 h`, `time_step = 15 s`.
 - `wrf-armenia-pilot-3km`: published grid `84 x 84` (`x0M = -124500.0`, `y0M = -124500.0`), primary `noaa-gfs-0p25-v1` (candidate `ecmwf-ifs-0p1-v1`, recipe available), `16` leads, `17` BL levels (`0-2 km` AGL), remaining-horizon floor `10 h`, `time_step = 15 s`.
 - `wrf-armenia-pilot-dwd-1km`: published grid `156 x 114` (`x0M = -77500.0`, `y0M = -56500.0`), primary `dwd-icon-eu-v1` (candidate `noaa-gfs-0p25-v1`, recipe available), `24` leads, `17` BL levels (`0-2 km` AGL), remaining-horizon floor `18 h`, `time_step = 5 s`.
