@@ -177,10 +177,10 @@ class TestForecastSelect(unittest.TestCase):
                 product_id="not-a-configured-product",
             )
 
-    def test_solver_label_is_on_demand_arm_with_both_caches(self) -> None:
+    def test_solver_label_uses_the_run_spot_flag(self) -> None:
         job = self._select("schedule", self.trigger, cron=self.cron)
         self.assertIn("runs-on=run-1/", job.solver_label)
-        self.assertIn("spot=false", job.solver_label)
+        self.assertIn(f"spot={'true' if self.target.spot else 'false'}", job.solver_label)
         self.assertIn("image=ubuntu24-full-arm64", job.solver_label)
         self.assertIn("extras=s3-cache+ecr-cache", job.solver_label)
         self.assertIn("+".join(self.target.families), job.solver_label)

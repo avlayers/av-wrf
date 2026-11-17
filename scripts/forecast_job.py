@@ -25,6 +25,7 @@ class ForecastTarget:
     vcpus: int
     mpi_ranks: int
     volume: str
+    spot: bool
     image_name: str
     consumer_repository: str
     consumer_model: str
@@ -90,12 +91,13 @@ def verify_manifest(root: Path) -> None:
 
 
 def solver_label(run_id: str, target: ForecastTarget) -> str:
-    """Bake the on-demand Graviton label. The caller supplies the workflow run id."""
+    """Bake the Graviton label. The caller supplies the workflow run id."""
     family = "+".join(target.families)
+    spot = "true" if target.spot else "false"
     return (
         f"runs-on={run_id}/family={family}/cpu={target.vcpus}"
         f"/image=ubuntu24-full-arm64/volume={target.volume}"
-        "/spot=false/extras=s3-cache+ecr-cache"
+        f"/spot={spot}/extras=s3-cache+ecr-cache"
     )
 
 
@@ -139,6 +141,7 @@ def _target(item: dict[str, object]) -> ForecastTarget:
         vcpus=_req_int(item, "vcpus"),
         mpi_ranks=_req_int(item, "mpi_ranks"),
         volume=_req_str(item, "volume"),
+        spot=_req_bool(item, "spot"),
         image_name=_req_str(item, "image_name"),
         consumer_repository=repository,
         consumer_model=model,
@@ -179,6 +182,13 @@ def _req_str(item: dict[str, object], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Missing {key}")
     return value.strip()
+
+
+def _req_bool(item: dict[str, object], key: str) -> bool:
+    value = item.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be true or false")
+    return value
 
 
 def _req_int(item: dict[str, object], key: str) -> int:

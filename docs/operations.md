@@ -14,9 +14,9 @@ emits the runs for the triggering cron or the dispatch input. `gate` uses the
 false`, so a second dispatch waits and then sees that receipt. Mirror, prepare,
 solve, and publish run only when something is still unpublished.
 
-Prepare and publish stay on 2 vCPU spot runners. Solve is on-demand
-(`spot=false`) because checkpoint restart is still an open gate. A spot
-interruption fails the job; the next attempt downloads again. There is no
+Prepare and publish stay on 2 vCPU spot runners. Each run sets `spot` on
+its solver label. A spot interruption fails the job; the next attempt
+downloads again. There is no
 in-job sleep. The heavy runner is not requested until prepare succeeds.
 
 The solver label asks for `c8g.8xlarge` then `c7g.8xlarge`, with
