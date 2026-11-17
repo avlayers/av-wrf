@@ -1,4 +1,4 @@
-"""Cloud-agnostic regional WRF-ARW producer for windy-av-layer."""
+"""Cloud-agnostic regional WRF-ARW producer for av-layers."""
 
 from __future__ import annotations
 

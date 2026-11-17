@@ -204,7 +204,7 @@ class StagedPostManifest:
 
 @dataclass(frozen=True)
 class ReadyReceipt:
-    """Complete cycle publication receipt consumed by windy-av-layer Zarr v3 provider."""
+    """Complete cycle publication receipt consumed by av-layers Zarr v3 provider."""
 
     schema_id: str
     schema_version: int

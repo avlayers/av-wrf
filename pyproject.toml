@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "av-wrf"
 version = "0.1.0"
-description = "Cloud-agnostic regional WRF-ARW producer emitting native model-level Zarr v3 stores for windy-av-layer."
+description = "Cloud-agnostic regional WRF-ARW producer emitting native model-level Zarr v3 stores for av-layers."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -118,6 +118,6 @@ addopts = "-ra --strict-markers"
 markers = [
   "unit: fast deterministic pure-core and schema tests",
   "property: Hypothesis property-based invariant tests",
-  "contract: windy-av-layer wrf-zarr-v3 wire conformance tests",
+  "contract: av-layers wrf-zarr-v3 wire conformance tests",
   "integration: local filesystem store and recovery tests",
 ]

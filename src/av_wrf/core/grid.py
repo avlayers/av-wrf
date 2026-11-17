@@ -215,7 +215,7 @@ def published_crs_wkt(domain: DomainProfile) -> str:
 
 
 def published_lambert_grid_metadata(domain: DomainProfile) -> dict[str, int | float | str | bool]:
-    """Build exact windy-av-layer LambertConformalGrid descriptor for Published Grid."""
+    """Build exact av-layers LambertConformalGrid descriptor for Published Grid."""
     nj, ni = published_grid_shape(domain)
     x0_m, y0_m = published_grid_origin_xy_m(domain)
     p1 = domain.std_parallel_1_deg

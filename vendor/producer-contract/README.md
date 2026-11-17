@@ -1,11 +1,11 @@
 # Producer Wire Contract (`vendor/producer-contract/`)
 
 Provisional Phase 1 `wrf-zarr-v3` wire schema locked by SHA-256 in
-[`manifest.lock`](../../manifest.lock). Once `windy-av-layer` lands its canonical
+[`manifest.lock`](../../manifest.lock). Once `av-layers` lands its canonical
 copy at `packages/contracts/schemas/wrf-zarr-v3.schema.json`, sync and verify via:
 
 ```sh
-python3 scripts/sync_contract.py --from-consumer ../windy-av-layer
+python3 scripts/sync_contract.py --from-consumer ../av-layers
 python3 scripts/sync_contract.py --verify
 ```
 

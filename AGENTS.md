@@ -14,7 +14,7 @@ move fewer bytes, allocate fewer arrays, and burn fewer core-hours.
   the boundary. Keep helpers private (`_name`) and export only `__all__`.
 - Give each fact one owner:
   - [vendor/producer-contract](vendor/producer-contract/README.md) holds the
-    `wrf-zarr-v3` wire schema (provisional until promoted into `windy-av-layer`;
+    `wrf-zarr-v3` wire schema (provisional until promoted into `av-layers`;
     sync via `scripts/sync_contract.py --from-consumer`).
   - [zarr_schema.py](src/av_wrf/contracts/zarr_schema.py) mirrors the 22-array
     template in Python.
@@ -26,7 +26,7 @@ move fewer bytes, allocate fewer arrays, and burn fewer core-hours.
   `forecast.zarr`, `_ready.json`, and `_diagnostics.json` (extensions follow
   [plan.md](docs/plan.md)). Soaring parcel physics, subgrid DEM columns,
   `samples.bin`, `profiles.bin`, and `.pmtiles` belong exclusively to
-  `windy-av-layer`.
+  `av-layers`.
 - Obey the 5-layer one-way import DAG (`L0 contracts <- L1 core <- L2 codecs <-
   L3 runner <- L4 cli`):
   - `contracts` and `core` are pure deterministic functions: zero file I/O,

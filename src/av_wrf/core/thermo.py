@@ -35,7 +35,7 @@ MIN_WATER_VAPOR_KGKG = -1.0e-4
 # MYNN sfclay extrapolates Q2 and can cross zero at one cell over cold terrain.
 # https://github.com/wrf-model/WRF/blob/v4.8.0/phys/module_sf_mynn.F
 MIN_DIAGNOSTIC_Q2_KGKG = -1.0e-2
-# windy-av-layer/packages/soaring/src/parameters.ts, expressed in wire units.
+# av-layers/packages/soaring/src/parameters.ts, expressed in wire units.
 _CONSUMER_RANGES = {
     "surface_pressure_pa": (10_000.0, 110_000.0),
     "temp_2m_k": (ZERO_CELSIUS_K - 100.0, ZERO_CELSIUS_K + 60.0),

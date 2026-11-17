@@ -10,7 +10,7 @@
 # - `dzbot_m: 50.0` places the lowest mass midpoint at ~25.3 m AGL in valleys and ~21.9 m AGL even
 #   after hybrid compression over 5,137 m Mount Ararat, keeping level 0 strictly above consumer
 #   `NATIVE_DIAGNOSTIC_PARAMETERS.minimumLevelAglM = 20 m`.
-# - `max_dz_m: 850.0` leaves >= 15% summer thermal-expansion headroom below `windy-av-layer`
+# - `max_dz_m: 850.0` leaves >= 15% summer thermal-expansion headroom below `av-layers`
 #   `maximumProfileGapM = 1000.0 m` (`packages/soaring/src/column.ts:159`).
 # - `terrain_elevations_m` checks 800 m Ararat valley, 4,090 m Mount Aragats, and 5,137 m Ararat.
 # References:

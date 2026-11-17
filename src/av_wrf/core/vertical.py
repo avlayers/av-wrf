@@ -8,7 +8,7 @@ Assumptions & High-Mountain Coordinate Math (Skamarock et al. 2019 NCAR/TN-556+S
    `eta[e_vert - 1] = 0.0`. WRF limits the upper fill to `1.5 * max_dz`.
 2. Reference column heights over elevated `terrain_m` (`init_domain_rk`) use `base_temp_k`,
    the log-pressure lapse, and cubic hybrid `B(eta)` with WRF's default isothermal upper profile.
-3. Consumer `windy-av-layer` (`NATIVE_DIAGNOSTIC_PARAMETERS.minimumLevelAglM = 20 m`) discards
+3. Consumer `av-layers` (`NATIVE_DIAGNOSTIC_PARAMETERS.minimumLevelAglM = 20 m`) discards
    any model level at or below `20.0 m` AGL. Both `validate_vertical_column` and
    `validate_frame_columns` require `level[0] > 20.0 m` AGL and count only usable levels in
    `(20.0, 2000.0]` m AGL toward `min_bl_levels_2km_agl`.

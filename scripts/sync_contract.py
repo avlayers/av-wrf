@@ -1,4 +1,4 @@
-"""Contract sync from windy-av-layer and SHA-256 lock verifier for manifest.lock."""
+"""Contract sync from av-layers and SHA-256 lock verifier for manifest.lock."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def write_manifest_lock(repo_root: Path) -> Path:
 
 
 def sync_from_consumer(repo_root: Path, consumer_root: Path) -> None:
-    """Copy canonical wrf-zarr-v3 schema from windy-av-layer and refresh manifest.lock."""
+    """Copy canonical wrf-zarr-v3 schema from av-layers and refresh manifest.lock."""
     src = consumer_root / CONSUMER_REL_SCHEMA
     if not src.is_file():
         raise FileNotFoundError(
@@ -86,7 +86,7 @@ def main() -> int:
     parser.add_argument(
         "--from-consumer",
         type=Path,
-        help="Copy canonical schema from windy-av-layer checkout and update manifest.lock",
+        help="Copy canonical schema from av-layers checkout and update manifest.lock",
     )
     parser.add_argument(
         "--allow-lock-rewrite",
