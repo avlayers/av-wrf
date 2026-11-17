@@ -214,8 +214,11 @@ class TestPostFrame(unittest.TestCase):
                 dom,
                 sci,
             )
-        out, _ = post_frame(base0, dataclasses.replace(f001, q2_kgkg=mass2(-5e-5)), dom, sci)
-        self.assertEqual(out.fields_2d["spfh_2m_kgkg"].at(0, 0), 0.0)
+        for undershoot in (-5e-5, -1.2e-3):
+            out, _ = post_frame(
+                base0, dataclasses.replace(f001, q2_kgkg=mass2(undershoot)), dom, sci
+            )
+            self.assertEqual(out.fields_2d["spfh_2m_kgkg"].at(0, 0), 0.0)
 
 
 if __name__ == "__main__":

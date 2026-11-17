@@ -58,7 +58,9 @@ their respective sides of the Zarr v3 contract:
    `spfhKgKg` and `pressurePa`, matching `ICON-EU` and `RRFS`.
 3. **2 m Bolton liquid-saturation guard (`clamp_spfh_2m_vec`):** The selected
    MYNN surface layer (`sf_sfclay_physics = 5`) supplies native `Q2`.
-   `av-wrf` caps its converted `spfh_2m_kgkg` at consumer Bolton (1980) liquid saturation
+   That diagnostic can undershoot zero; values down to `-0.01 kg/kg` are floored
+   before conversion, and a lower value is rejected. `av-wrf` then caps
+   `spfh_2m_kgkg` at consumer Bolton (1980) liquid saturation
    ($e_s = 6.112 \exp(17.67 T_c / (T_c + 243.5))\text{ hPa}$, $\epsilon = 0.622$)
    with $2^{-14}$ mantissa headroom so `keepbits = 15` rounding never exceeds `100%` RH.
 4. **Initialization humidity:** `use_sh_qv` selects direct vertical interpolation

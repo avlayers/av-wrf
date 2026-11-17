@@ -29,7 +29,7 @@ from av_wrf.core.post_3d import (
     post_3d_slabs,
 )
 from av_wrf.core.thermo import (
-    MIN_WATER_VAPOR_KGKG,
+    MIN_DIAGNOSTIC_Q2_KGKG,
     clamp_spfh_2m_vec,
     groom_f32_buf,
     mixing_ratio_to_spfh_vec,
@@ -93,8 +93,8 @@ def _post_surface_slabs(
     validate_thermodynamic_field("temp_2m_k", t2_gr)
     t2 = t2_gr.astype(np.float64)
     q2_raw = crop2_f64(raw.q2_kgkg, trim, "Q2")
-    # The WPS humidity bound also covers this near-surface mixing-ratio admission.
-    if bool(np.any(q2_raw < MIN_WATER_VAPOR_KGKG)):
+    # Floor a MYNN diagnostic undershoot. A lower Q2 is corrupt input.
+    if bool(np.any(q2_raw < MIN_DIAGNOSTIC_Q2_KGKG)):
         raise ValueError("Large negative Q2 encountered in post_frame")
     q2 = mixing_ratio_to_spfh_vec(q2_raw)
     sp2 = clamp_spfh_2m_vec(q2, t2, psfc)
