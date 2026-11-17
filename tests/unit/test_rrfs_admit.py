@@ -74,13 +74,15 @@ def _messages(
         disc, cat, num, surface, top, bottom = field
         level = top / 100.0 if surface == 106 else float(top)
         depth = bottom / 100.0 if surface == 106 else float(bottom)
+        # Soil and the two snow fields are bitmapped in a live CONUS file.
+        masked = surface == 106 or (disc, cat, num) in ((0, 1, 11), (0, 1, 13))
         rows.append(
             {
                 **shared,
                 **dict(zip(GRIB_FIELD_KEYS, (disc, cat, num, surface, level, depth), strict=True)),
                 "typeOfLevel": "isobaricInhPa" if surface == 100 else "surface",
                 "typeOfSecondFixedSurface": 106 if surface == 106 else 255,
-                "numberOfMissing": 4 if surface == 106 else 0,
+                "numberOfMissing": 4 if masked else 0,
                 "uvRelativeToGrid": 1 if (disc, cat) == (0, 2) else 0,
                 "offset": index * 20,
                 "totalLength": 20,
@@ -170,11 +172,14 @@ def test_missing_mslet_bad_wind_and_extra_level_are_rejected(tmp_path: Path) -> 
         _admit(tmp_path / "process.grib2", bare)
 
 
-def test_soil_mask_is_allowed_and_a_masked_pressure_field_is_not(tmp_path: Path) -> None:
+def test_soil_and_snow_masks_are_allowed_and_a_masked_pressure_field_is_not(
+    tmp_path: Path,
+) -> None:
     messages = _messages(tuple(sorted(rrfs_required_fields("full"))))
     assert any(row["numberOfMissing"] == 4 for row in messages)
     _admit(tmp_path / "soil.grib2", messages)
-    messages[0]["numberOfMissing"] = 1
+    pressure = next(row for row in messages if row["typeOfFirstFixedSurface"] == 100)
+    pressure["numberOfMissing"] = 1
     with pytest.raises(ValueError, match="Missing values"):
         _admit(tmp_path / "masked.grib2", messages)
     bad = _grid(shapeOfTheEarth=1)

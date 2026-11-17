@@ -53,6 +53,8 @@ _SURFACE_IDS = (
 _SOIL_CM = (0, 1, 4, 10, 30, 60, 100, 160, 300)
 _SOIL_CODES = ((2, 0, 2), (2, 0, 192))
 _WIND = frozenset(((0, 2, 2), (0, 2, 3)))
+# Live CONUS snow messages are bitmapped. Soil is bitmapped over water.
+_SNOW = frozenset(((0, 1, 11), (0, 1, 13)))
 _LONG_HOURS = frozenset((0, 6, 12, 18))
 _SHORT_HOURS = frozenset((3, 9, 15, 21))
 _PACKING = ("grid_complex_spatial_differencing",)
@@ -245,8 +247,8 @@ def _accept(
     if field not in required or field in fields:
         raise ValueError(f"Unexpected or duplicate RRFS field {field} in {path}")
     missing = _flag(row, "numberOfMissing")
-    # Soil is masked over water. Other required fields are complete.
-    if missing < 0 or (field[3] != 106 and missing != 0):
+    masked = field[3] == 106 or field[:3] in _SNOW
+    if missing < 0 or (missing != 0 and not masked):
         raise ValueError(f"Missing values in required RRFS field {field} in {path}")
     # WPS rotates grid winds to earth, then to the target grid.
     # https://github.com/wrf-model/WPS/blob/v4.7.0/ungrib/src/rd_grib2.F#L452
