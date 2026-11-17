@@ -159,8 +159,22 @@ def test_complete_inventory_covers_the_configured_footprint(tmp_path: Path) -> N
     require_rrfs_coverage(row, bounds)
     with pytest.raises(ValueError, match="does not cover"):
         require_rrfs_coverage(row, (-140.0, 10.0, -130.0, 20.0))
+    # printf("%g") rounds the live first point to 21.1381 and 237.28, or -122.72.
+    rounded = _grid(
+        latitudeOfFirstGridPointInDegrees=21.1381,
+        longitudeOfFirstGridPointInDegrees=237.28,
+    )
+    require_rrfs_coverage(rounded, bounds)
+    require_rrfs_coverage(_grid(longitudeOfFirstGridPointInDegrees=-122.72), bounds)
     messages = _messages(tuple(sorted(rrfs_required_fields("full"))))
+    for row in messages:
+        row["latitudeOfFirstGridPointInDegrees"] = 21.1381
+        row["longitudeOfFirstGridPointInDegrees"] = 237.28
     assert _admit(tmp_path / "full.grib2", messages) == "rrfs-grid"
+    with pytest.raises(ValueError, match="first latitude"):
+        require_rrfs_coverage(_grid(latitudeOfFirstGridPointInDegrees=21.139123), bounds)
+    with pytest.raises(ValueError, match="first longitude"):
+        require_rrfs_coverage(_grid(longitudeOfFirstGridPointInDegrees=237.281472), bounds)
 
 
 def test_missing_mslet_bad_wind_and_extra_level_are_rejected(tmp_path: Path) -> None:

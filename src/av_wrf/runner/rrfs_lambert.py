@@ -11,6 +11,9 @@ from av_wrf.runner.grib import grib_number
 # Live 3 km CONUS grid, template 3.30. 0.027 deg is only the nest-gate equivalent.
 _NI, _NJ, _DX_M = 1799, 1059, 3000.0
 _LAT1, _LON1 = 21.138123, 237.280472
+# grib_ls JSON prints doubles with printf("%g") (six significant digits).
+# The live first point therefore arrives as 21.1381 and 237.28; 5e-4 deg is ~55 m.
+_POINT_TOL = 5e-4
 _LAD, _LOV, _LATIN = 38.5, 262.5, 38.5
 # GRIB2 code table 3.2 value 6 is this sphere. The radius octets are unused.
 _RADIUS_M = 6_371_229.0
@@ -50,11 +53,13 @@ def _identity(row: Mapping[str, object]) -> None:
         "RRFS grid spacing must be 3000 m",
     )
     _require(
-        math.isclose(grib_number(row, "latitudeOfFirstGridPointInDegrees"), _LAT1, abs_tol=1e-5),
+        math.isclose(
+            grib_number(row, "latitudeOfFirstGridPointInDegrees"), _LAT1, abs_tol=_POINT_TOL
+        ),
         "RRFS first latitude disagrees with the CONUS grid",
     )
     _require(
-        _near_angle(grib_number(row, "longitudeOfFirstGridPointInDegrees"), _LON1),
+        _near_angle(grib_number(row, "longitudeOfFirstGridPointInDegrees"), _LON1, _POINT_TOL),
         "RRFS first longitude disagrees with the CONUS grid",
     )
     _require(
