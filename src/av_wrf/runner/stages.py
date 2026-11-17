@@ -37,6 +37,7 @@ from av_wrf.runner.bundle import (
     validate_bundle,
 )
 from av_wrf.runner.mirrors import find_forcing_recipe, forcing_subset
+from av_wrf.runner.solver import parse_build_manifest
 from av_wrf.runner.store import ObjectStore, json_bytes, run_lock_key, sha256_file
 
 
@@ -98,7 +99,7 @@ def plan_product_cycle(
     geog_bundle_sha256: str | None = None,
     bundle: LoadedBundle | None = None,
 ) -> tuple[str, RunLock]:
-    """Check namespace ownership, persist an immutable RunLock, and accept identical retries."""
+    """Persist an immutable RunLock and reuse a solved attempt with the same solver build."""
     require_path_segment(attempt_id, "attempt_id")
     namespaces = _product_namespaces(config_root)
     b = load_bundle(config_root, product_id) if bundle is None else bundle
@@ -120,9 +121,12 @@ def plan_product_cycle(
         store.put_if_absent(key, json_bytes(lock.to_doc()))
     except FileExistsError:
         stored = load_run_lock(store, lock.product_id, lock.cycle_partition, attempt_id, bundle=b)
-        if stored not in (lock, replace(lock, producer_sha256=None)):
-            raise
-        return key, stored
+        same = stored in (lock, replace(lock, producer_sha256=None))
+        if same or _same_solved_output(stored, lock):
+            return key, stored
+        raise FileExistsError(
+            f"Immutable object already exists: {key}; solved-output identity differs"
+        ) from None
     return key, lock
 
 
@@ -135,10 +139,54 @@ def _producer_sha256() -> str:
     return digest.hexdigest()
 
 
-def verify_producer_sha256(lock: RunLock) -> None:
-    """Verify the producer source tree against the recorded run-lock digest."""
-    if lock.producer_sha256 is not None and lock.producer_sha256 != _producer_sha256():
-        raise ValueError("Producer code SHA-256 drifted from frozen RunLock")
+# cli/env.py owns AV_WRF_BUILD_MANIFEST. Post and publish use this container default.
+_SOLVER_MANIFEST = Path("/opt/av-wrf/build-manifest.json")
+_REPLAY_DIGEST = "sha256:" + "0" * 64
+
+
+def _solver_build(manifest: BuildManifest) -> BuildManifest:
+    return replace(manifest, oci_digest="")
+
+
+def _same_solved_output(stored: RunLock, fresh: RunLock) -> bool:
+    # Digest and producer hash cover the Python tree. wrfout stays valid when
+    # solver commits, patches, compiler, MPI, config, geography, and cycle match.
+    left = replace(
+        stored, producer_sha256=None, build_manifest=_solver_build(stored.build_manifest)
+    )
+    right = replace(fresh, producer_sha256=None, build_manifest=_solver_build(fresh.build_manifest))
+    return left == right
+
+
+def _installed_solver_matches(lock: RunLock, path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return False
+        installed = parse_build_manifest(raw, _REPLAY_DIGEST)
+    except (OSError, ValueError):
+        return False
+    return _solver_build(installed) == _solver_build(lock.build_manifest)
+
+
+def verify_producer_sha256(
+    lock: RunLock,
+    *,
+    allow_solved_replay: bool = False,
+    replay_manifest: Path | None = None,
+) -> None:
+    """Verify the producer tree, or replay wrfout under the same solver build."""
+    if lock.producer_sha256 is None or lock.producer_sha256 == _producer_sha256():
+        return
+    # Solve leaves this unset so a cache miss cannot integrate drifted namelists.
+    path = replay_manifest
+    if path is None and allow_solved_replay and _SOLVER_MANIFEST.is_file():
+        path = _SOLVER_MANIFEST
+    if path is not None and _installed_solver_matches(lock, path):
+        return
+    raise ValueError("Producer code SHA-256 drifted from frozen RunLock")
 
 
 def _validate_mpi_mesh(mpi_ranks: int, e_we: int, e_sn: int) -> None:

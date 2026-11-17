@@ -294,7 +294,7 @@ def post_cycle_from_inputs(
     """Stage Zarr from verified solver output or an explicitly synthetic fixture."""
     b = load_bundle(config_root, product_id) if bundle is None else bundle
     lk = load_run_lock(store, product_id, cycle_partition, attempt_id, bundle=b)
-    verify_producer_sha256(lk)
+    verify_producer_sha256(lk, allow_solved_replay=True)
     win = resolve_cycle_window(b.product, b.output, lk.publish_origin_utc)
     mode, f0, st = _open_cycle_inputs(store, b, lk, win, wrfout_dir, synthetic)
     return _stage_cycle(store, b, lk, win, f0, st, mode), len(win.lead_hours)
