@@ -126,7 +126,7 @@ def _stream_staged_frames(
             raise ValueError(f"WRF step timestamp does not match scheduled {expected_time}")
         if raw_step.terrain_m != f000_step.terrain_m:
             raise ValueError(f"WRF HGT changed since f000 at {expected_time}")
-        frame, base = post_frame(base, raw_step, b.domain, b.science)
+        frame, base = post_frame(base, raw_step, b.domain, b.science, lead_h=window.lead_hours[i])
         if (frame.window_start_unix_s, frame.window_end_unix_s) != (start_s, end_s):
             raise ValueError(f"Unexpected accumulation window for {expected_time}")
         max_cfl = max(max_cfl, validate_frame_columns(frame, b.domain))

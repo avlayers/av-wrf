@@ -56,6 +56,39 @@ class TestPost3d(unittest.TestCase):
                         np.frombuffer(fields[name].buf, np.float32), fraction * 100.0
                     )
 
+    def test_groomed_pressure_order_names_the_failing_column(self) -> None:
+        pb = np.frombuffer(self.raw.pb_pa.buf, np.float32).reshape(
+            self.raw.pb_pa.nz, self.raw.pb_pa.ny, self.raw.pb_pa.nx
+        )
+        trim = self.domain.bdy_trim_cells
+        j = i = trim
+        saved = float(pb[0, j, i]), float(pb[1, j, i])
+        cases = (
+            (
+                0,
+                np.float32(89_000.0),
+                "lowest level >= surface",
+                "89000.000 Pa vs 88000.000 Pa, gap 1000.000 Pa",
+            ),
+            (
+                1,
+                np.float32(87_799.8),
+                "level 1 >= level 0",
+                "87800.000 Pa vs 87800.000 Pa, gap 0.000 Pa",
+            ),
+        )
+        for level, value, comparison, pressures in cases:
+            with self.subTest(comparison=comparison):
+                pb[0, j, i], pb[1, j, i] = saved
+                pb[level, j, i] = value
+                with self.assertRaisesRegex(ValueError, comparison) as caught:
+                    post_3d_slabs(self.raw, self.domain, self.bundle.science, self.shared, lead_h=3)
+                message = str(caught.exception)
+                self.assertIn(self.raw.valid_time_utc, message)
+                self.assertIn("lead_h=3", message)
+                self.assertIn(f"wrfout_y={j} wrfout_x={i}", message)
+                self.assertIn(pressures, message)
+
     def test_pressure_validation_includes_levels_above_exported_column(self) -> None:
         pb = np.frombuffer(self.raw.pb_pa.buf, np.float32).reshape(
             self.raw.pb_pa.nz, self.raw.pb_pa.ny, self.raw.pb_pa.nx
