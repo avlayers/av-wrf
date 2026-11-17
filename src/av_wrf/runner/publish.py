@@ -253,7 +253,7 @@ def _promote_under_cycle_lock(
             return already
         if not is_synth and lock.producer_sha256 is None:
             raise ValueError("Live publication requires a producer SHA-256; plan a new attempt")
-        verify_producer_sha256(lock)
+        verify_producer_sha256(lock, allow_solved_replay=True)
         payload_prefix = f"attempts/{lock.attempt_id}/{pm_sha256}"
         local = dst_store if isinstance(dst_store, LocalFileStore) else None
         zarr_relpath = _FORECAST if local is not None else f"{payload_prefix}/{_FORECAST}"
