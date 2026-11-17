@@ -3,9 +3,12 @@
 ## Forecast
 
 Each run in [`forecasts.yaml`](../config/operations/forecasts.yaml) owns its
-`schedule_cron_utc`. [`forecast.yml`](../.github/workflows/forecast.yml) lists
-every distinct value because GitHub schedules are static. A trigger starts
-only the operations that declare that cron. The workflow names no product.
+`schedule_cron_utc` and `scheduled` flag. A run with `scheduled: false` is
+manual: its cron snaps an empty cycle, and
+[`forecast.yml`](../.github/workflows/forecast.yml) does not register that
+cron. The workflow lists every scheduled cron because GitHub schedules are
+static. A schedule trigger starts only the scheduled operations that declare
+that cron. The workflow names no product.
 
 `resolve` runs on a 2 vCPU spot runner, refuses any ref other than `main`, and
 emits the runs for the triggering cron or the dispatch input. `gate` uses the
@@ -85,8 +88,9 @@ cache payload.
 ## Manual runs
 
 `workflow_dispatch` runs one allowlisted operation from the default branch.
-The product field is a single-choice menu of every operation. Add another
-operation to the allowlist and one matching menu line.
+The product field is a single-choice menu of every operation, including
+manual runs. Add the operation to the allowlist and one matching menu line.
+Register a cron only when `scheduled` is true.
 An empty cycle snaps to that operation's latest live origin. The 3 hour
 lateness guard applies to schedule events: a schedule more than 3 hours after
 its cron fails before any download. An explicit cycle must still be live. The

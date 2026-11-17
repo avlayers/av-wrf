@@ -1,7 +1,9 @@
-# Unattended runs. Workflows load this file; they do not name products.
+# Forecast runs. Workflows load this file; they do not name products.
+# scheduled: false stays on the manual menu and off the GitHub cron list.
 runs:
   - product_id: wrf-armenia-3km
     schedule_cron_utc: "15 23 * * *"
+    scheduled: true
     estimate_minutes: 240
     # On-demand fallback order. Spot uses price-capacity-optimized.
     families:
@@ -21,3 +23,25 @@ runs:
     consumer_repository: avlayers/av-layers
     consumer_model: av-wrf
     consumer_environment: production
+  - product_id: wrf-va-1km
+    schedule_cron_utc: "00 10 * * *"
+    scheduled: false
+    # Same planning cap as the 3 km run until this solve records its wall time.
+    estimate_minutes: 240
+    families:
+      - c8g.8xlarge
+      - c7g.8xlarge
+      - m7g.8xlarge
+      - c9g.8xlarge
+      - m8g.8xlarge
+      - m9g.8xlarge
+      - r7g.8xlarge
+      - r8g.8xlarge
+    vcpus: 32
+    mpi_ranks: 24
+    volume: 200gb:gp3:750mbs:4000iops
+    spot: true
+    image_name: av-wrf-solver
+    consumer_repository: avlayers/av-layers
+    consumer_model: wrf-va-1km
+    consumer_environment: staging

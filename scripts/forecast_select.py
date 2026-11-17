@@ -194,7 +194,9 @@ def _matching_cron(targets: tuple[ForecastTarget, ...], cron: str) -> tuple[Fore
     needle = cron.strip()
     if not needle:
         raise ValueError("A schedule event needs the triggering cron")
-    chosen = tuple(target for target in targets if target.schedule_cron_utc == needle)
+    chosen = tuple(
+        target for target in targets if target.scheduled and target.schedule_cron_utc == needle
+    )
     if not chosen:
         raise ValueError(f"No enabled run uses schedule {needle!r}")
     return chosen

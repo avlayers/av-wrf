@@ -200,7 +200,7 @@ class TestForecastSelect(unittest.TestCase):
                 verify_manifest(root)
 
     def test_workflow_owns_enabled_crons_once(self) -> None:
-        enabled = {target.schedule_cron_utc for target in self.targets}
+        enabled = {target.schedule_cron_utc for target in self.targets if target.scheduled}
         forecast = _WORKFLOWS / "forecast.yml"
         text = forecast.read_text(encoding="utf-8")
         self.assertEqual(_crons(forecast), enabled)

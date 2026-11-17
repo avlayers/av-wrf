@@ -1,4 +1,4 @@
-"""Runner budget and archive manifest for one unattended forecast."""
+"""Runner budget and archive manifest for one forecast run."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ _ENVIRONMENTS = frozenset({"staging", "production"})
 class ForecastTarget:
     product_id: str
     schedule_cron_utc: str
+    scheduled: bool
     estimate_minutes: int
     families: tuple[str, ...]
     vcpus: int
@@ -73,7 +74,7 @@ def native_timeout_s(job_timeout_min: int) -> int:
 
 
 def load_targets(path: Path) -> tuple[ForecastTarget, ...]:
-    """Load the unattended allowlist. An empty file is a configuration error."""
+    """Load the forecast allowlist. An empty file is a configuration error."""
     doc = parse_declarative_yaml(path)
     raw_runs = doc.get("runs")
     if not isinstance(raw_runs, list) or not raw_runs:
@@ -143,6 +144,7 @@ def _target(item: dict[str, object]) -> ForecastTarget:
     return ForecastTarget(
         product_id=_req_str(item, "product_id"),
         schedule_cron_utc=_daily_cron(_req_str(item, "schedule_cron_utc")),
+        scheduled=_req_bool(item, "scheduled"),
         estimate_minutes=_req_int(item, "estimate_minutes"),
         families=_families(item, vcpus),
         vcpus=vcpus,
