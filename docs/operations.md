@@ -90,11 +90,16 @@ cache payload.
 `workflow_dispatch` runs one allowlisted operation from the default branch.
 The product field is a single-choice menu of every operation, including
 manual runs. Add the operation to the allowlist and one matching menu line.
-Register a cron only when `scheduled` is true.
+Register a cron only when `scheduled` is true. `notify: false` publishes
+without a consumer event, so the receipt keeps no delivered mark. Set
+`notify: true` once the consumer registers the model. Until then the forecast
+workflow skips the event and
+[`notify.yml`](../.github/workflows/notify.yml) refuses it. The operations
+cron must equal the product cron.
 An empty cycle snaps to that operation's latest live origin. The 3 hour
 lateness guard applies to schedule events: a schedule more than 3 hours after
 its cron fails before any download. An explicit cycle must still be live. The
 default attempt is `att-01`. An empty consumer environment uses the allowlist;
 `staging` or `production` overrides it. A cycle that already has `_ready.json`
-skips compute and sends the consumer event.
+skips compute and, when the run notifies, sends the consumer event.
 [`notify.yml`](../.github/workflows/notify.yml) sends that event by itself.

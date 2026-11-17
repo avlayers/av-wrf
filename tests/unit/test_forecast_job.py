@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ for path in (ROOT, ROOT / "src"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from scripts.forecast_dispatch import dispatch_published  # noqa: E402
 from scripts.forecast_job import _families, load_targets, solver_label  # noqa: E402
 from scripts.forecast_select import select_runs  # noqa: E402
 
@@ -59,6 +61,10 @@ class TestSolverFamilies(unittest.TestCase):
             product_id=target.product_id,
         )
         self.assertEqual(jobs[0].consumer_environment, "staging")
+        self.assertFalse(target.notify)
+        self.assertFalse(jobs[0].notify)
+        self.assertIn("matrix.run.notify == true", workflow)
+        self.assertTrue(all(item.notify for item in load_targets(_OPS) if item.scheduled))
         bundle = load_bundle(ROOT / "config", target.product_id)
         origin = parse_iso_utc(jobs[0].cycle_iso)
         self.assertEqual(origin.hour, bundle.product.publish_origin_hour_utc)
@@ -71,6 +77,36 @@ class TestSolverFamilies(unittest.TestCase):
                 run_id="run-1",
                 cron=target.schedule_cron_utc,
             )
+
+    def test_manual_notify_refuses_before_a_receipt_write(self) -> None:
+        target = next(item for item in load_targets(_OPS) if not item.notify)
+        with self.assertRaisesRegex(ValueError, "does not send a consumer event"):
+            dispatch_published(
+                ROOT / "config",
+                _OPS,
+                product_id=target.product_id,
+                cycle="2026-06-02T12:00:00Z",
+                attempt="att-01",
+                store_uri="s3://bucket/prefix",
+                token="token-value",
+            )
+
+    def test_operations_cron_must_match_the_product(self) -> None:
+        text = _OPS.read_text(encoding="utf-8").replace('"00 10 * * *"', '"30 10 * * *"', 1)
+        self.assertNotEqual(text, _OPS.read_text(encoding="utf-8"))
+        target = next(item for item in load_targets(_OPS) if not item.scheduled)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forecasts.yaml"
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must equal the product schedule"):
+                select_runs(
+                    ROOT / "config",
+                    path,
+                    mode="dispatch",
+                    now=datetime(2026, 6, 2, 10, 30, tzinfo=UTC),
+                    run_id="run-1",
+                    product_id=target.product_id,
+                )
 
     def test_other_cpus_are_rejected(self) -> None:
         rejected = (

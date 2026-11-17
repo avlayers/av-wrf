@@ -27,6 +27,7 @@ class ForecastTarget:
     product_id: str
     schedule_cron_utc: str
     scheduled: bool
+    notify: bool
     estimate_minutes: int
     families: tuple[str, ...]
     vcpus: int
@@ -56,6 +57,7 @@ class ForecastJob:
     consumer_repository: str
     consumer_model: str
     consumer_environment: str
+    notify: bool
 
 
 def timeout_minutes(estimate_minutes: int) -> int:
@@ -145,6 +147,7 @@ def _target(item: dict[str, object]) -> ForecastTarget:
         product_id=_req_str(item, "product_id"),
         schedule_cron_utc=_daily_cron(_req_str(item, "schedule_cron_utc")),
         scheduled=_req_bool(item, "scheduled"),
+        notify=_req_bool(item, "notify"),
         estimate_minutes=_req_int(item, "estimate_minutes"),
         families=_families(item, vcpus),
         vcpus=vcpus,

@@ -127,6 +127,7 @@ def _job(
         consumer_repository=target.consumer_repository,
         consumer_model=target.consumer_model,
         consumer_environment=target.consumer_environment,
+        notify=target.notify,
     )
 
 
@@ -140,6 +141,11 @@ def _resolved_origin(
     enforce_lateness: bool,
 ) -> tuple[str, str]:
     bundle = load_bundle(config_dir, product_id)
+    if cron != bundle.product.schedule_cron_utc:
+        raise ValueError(
+            f"Operations schedule {cron!r} must equal the product schedule "
+            f"{bundle.product.schedule_cron_utc!r}"
+        )
     origin = (
         validate_cycle(config_dir, product_id, cycle, now)
         if cycle

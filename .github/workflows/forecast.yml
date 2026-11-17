@@ -513,6 +513,7 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --locked
       - name: Dispatch the published cycle
+        if: matrix.run.notify == true
         run: >-
           uv run python -m scripts.forecast_dispatch
           --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT"
