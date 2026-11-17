@@ -233,14 +233,12 @@ class TestForecastSelect(unittest.TestCase):
         self.assertNotIn("pull_request:", images)
         self.assertIn("if: github.ref == 'refs/heads/main'", images)
         self.assertEqual(_push_paths(images), _IMAGE_PATHS)
-        self.assertIn("cpu=8", images)
-        self.assertIn("JOBS=8", images)
+        self.assertIn("runs-on: ubuntu-24.04-arm", images)
+        self.assertIn("JOBS=4", images)
+        self.assertNotIn("runs-on/action@", images)
         self.assertNotIn("runner=2cpu-linux-arm64", images)
         self.assertIn("push: false", images)
         self.assertIn("docker push", images)
-        action_at = images.index("runs-on/action@")
-        buildx_at = images.index("docker/setup-buildx-action@")
-        self.assertLess(action_at, buildx_at)
 
     def test_pending_filters_a_durable_receipt(self) -> None:
         job = self._select("schedule", self.trigger, cron=self.cron)
