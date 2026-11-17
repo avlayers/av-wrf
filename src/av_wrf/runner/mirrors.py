@@ -22,6 +22,7 @@ from av_wrf.runner.forcing_gfs import GFS
 from av_wrf.runner.forcing_icon import ICON_EU
 from av_wrf.runner.forcing_ifs import IFS
 from av_wrf.runner.forcing_recipe import ForcingRecipe
+from av_wrf.runner.forcing_rrfs import RRFS
 from av_wrf.runner.store import (
     LocalFileStore,
     _copy_sha256_file,
@@ -34,7 +35,7 @@ from av_wrf.runner.store import (
 FORCING_MANIFEST_FILENAME = "forcing_manifest.json"
 
 
-_RECIPES = {recipe.identity: recipe for recipe in (GFS, ICON_EU, IFS)}
+_RECIPES = {recipe.identity: recipe for recipe in (GFS, ICON_EU, IFS, RRFS)}
 
 
 class ForcingSubset(TypedDict):

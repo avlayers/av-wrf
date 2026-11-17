@@ -1,9 +1,10 @@
-"""Fetch complete GFS messages selected by the NCEP byte-offset inventory."""
+"""Fetch selected GRIB2 messages from a NCEP byte-offset inventory."""
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 
 import httpx
 
@@ -42,18 +43,23 @@ def _selected(variable: str, level: str) -> bool:
     return level in ("max wind", "tropopause") and variable in _AIR | {"PRES"}
 
 
-def _ranges(index: str, size: int) -> list[tuple[int, int]]:
+def _ranges(
+    index: str,
+    size: int,
+    select: Callable[[str, str], bool] = _selected,
+    source_name: str = "GFS",
+) -> list[tuple[int, int]]:
     entries: list[tuple[int, bool]] = []
     for line in index.splitlines():
         parts = line.split(":")
         if len(parts) < 6 or not parts[0].isdigit() or not parts[1].isdigit():
-            raise ValueError("Malformed GFS index")
+            raise ValueError(f"Malformed {source_name} index")
         offset = int(parts[1])
         if offset >= size or (entries and offset <= entries[-1][0]):
-            raise ValueError("Non-monotonic or out-of-range GFS index")
-        entries.append((offset, _selected(parts[3], parts[4])))
+            raise ValueError(f"Non-monotonic or out-of-range {source_name} index")
+        entries.append((offset, select(parts[3], parts[4])))
     if not entries or entries[0][0] != 0:
-        raise ValueError("Empty or incomplete GFS index")
+        raise ValueError(f"Empty or incomplete {source_name} index")
     ranges: list[tuple[int, int]] = []
     for i, (start, selected) in enumerate(entries):
         if not selected:
@@ -64,7 +70,7 @@ def _ranges(index: str, size: int) -> list[tuple[int, int]]:
         else:
             ranges.append((start, end))
     if not ranges:
-        raise ValueError("GFS index contains no selected messages")
+        raise ValueError(f"{source_name} index contains no selected messages")
     return ranges
 
 
@@ -136,32 +142,49 @@ def _check_source(client: httpx.Client, url: str, size: int, etag: str) -> None:
             raise ValueError("Source changed during download")
 
 
-def _download(client: httpx.Client, url: str) -> bytes:
+def _download(
+    client: httpx.Client,
+    url: str,
+    select: Callable[[str, str], bool],
+    source_name: str,
+) -> bytes:
     size, etag = _source_info(client, url)
     index = _request(client, "GET", url + ".idx").text
-    selected = _ranges(index, size)
+    selected = _ranges(index, size, select, source_name)
     parts, transferred = _receive_ranges(client, url, selected, size, etag)
     if _request(client, "GET", url + ".idx").text != index:
-        raise ValueError("GFS index changed during download")
+        raise ValueError(f"{source_name} index changed during download")
     _check_source(client, url, size, etag)
     result = b"".join(parts)
     _framing(result)
     _LOG.info(
-        "GFS global messages: transferred=%d selected=%d source=%d", transferred, len(result), size
+        "%s range messages: transferred=%d selected=%d source=%d",
+        source_name,
+        transferred,
+        len(result),
+        size,
     )
     return result
 
 
-def fetch_ranges(client: httpx.Client, mirrors: tuple[str, ...], key: str) -> bytes:
-    """Return selected global GRIB2 messages from one complete mirror revision."""
+def fetch_ranges(
+    client: httpx.Client,
+    mirrors: tuple[str, ...],
+    key: str,
+    *,
+    select: Callable[[str, str], bool] | None = None,
+    source_name: str = "GFS",
+) -> bytes:
+    """Return selected GRIB2 messages from one complete mirror revision."""
+    choose = _selected if select is None else select
     errors: list[str] = []
     for mirror in mirrors:
         try:
-            return _download(client, f"{mirror.rstrip('/')}/{key}")
+            return _download(client, f"{mirror.rstrip('/')}/{key}", choose, source_name)
         except (httpx.HTTPError, ValueError) as exc:
             errors.append(f"{mirror}: {exc}")
-            _LOG.warning("GFS mirror failed: %s", errors[-1])
-    raise ValueError("All GFS mirrors failed: " + "; ".join(errors))
+            _LOG.warning("%s mirror failed: %s", source_name, errors[-1])
+    raise ValueError(f"All {source_name} mirrors failed: " + "; ".join(errors))
 
 
 __all__ = ["fetch_ranges"]

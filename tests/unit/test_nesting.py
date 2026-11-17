@@ -17,6 +17,7 @@ from av_wrf.core import (  # noqa: E402
     forcing_domain,
     nesting_active,
     parent_domain_shape,
+    resolved_domains,
     validate_resolved_topology,
     validate_science_profile,
 )
@@ -65,6 +66,17 @@ class TestNesting(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "unsupported additional nest"):
             validate_resolved_topology(b.domain, b.science, 0.25)
+
+    def test_lambert_equivalent_spacing_stays_one_domain(self) -> None:
+        found = 0
+        for path in sorted((ROOT / "config" / "products").glob("*.yaml")):
+            bundle = load_bundle(ROOT / "config", path.stem)
+            if bundle.primary_source.grid_spacing_deg != 0.027:
+                continue
+            found += 1
+            self.assertFalse(nesting_active(bundle.domain, 0.027))
+            self.assertEqual(len(resolved_domains(bundle.domain, 0.027)), 1)
+        self.assertEqual(found, 1)
 
     def test_shipped_source_trees_pass_resolved_topology(self) -> None:
         for path in sorted((ROOT / "config" / "products").glob("*.yaml")):

@@ -1,0 +1,22 @@
+# 1 km RRFS product. The 06Z cycle, six-hour spin-up, and 12Z origin request
+# forcing hours f000 through f030. The 08:30 deadline is advisory: enforcing it
+# would leave too little time after the 10:00Z start. The candidate is the same
+# source because a quarter-degree source cannot pass the 1 km nest gate.
+# This product is intentionally absent from the operations allowlist.
+product_id: wrf-va-1km
+model_id: wrf-va-1km
+label: WRF northern Virginia 1 km (RRFS)
+region_tz: America/New_York
+domain_profile: va-1km-v1
+science_profile: convection-permitting-1km-comparison-v1
+primary_source_profile: noaa-rrfs-conus-3km-v1
+candidate_source_profile: noaa-rrfs-conus-3km-v1
+output_profile: wrf-zarr-v3-24h
+spinup_hours: 6
+forcing_cycle_hour_utc: 6
+publish_origin_hour_utc: 12
+local_deadline_hhmm: "08:30"
+enforce_local_deadline: false
+min_horizon_hours: 18
+max_cycle_age_hours: 6
+schedule_cron_utc: "00 10 * * *"

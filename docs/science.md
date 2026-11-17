@@ -216,6 +216,10 @@ ECMWF IFS Open Data supplies roughly `14` pressure levels, emitted as
 `metgrid_levels = 15`. That column is coarse for a `55`-level hybrid
 initialization. This is inventory information, not a qualified vertical
 solution; GFS and ICON-EU are preferred when vertical structure matters.
+The CONUS RRFS GRIB2 recipe supplies 45 isobaric levels and specific humidity
+from the `prslev` and `2dfld` products. It leaves RRFS hybrid-level output on
+its own route. A 55-level WRF column does not restore structure those isobars
+omit, and the six-hour spin-up remains an experimental baseline.
 
 ### Gray-zone and steep-terrain caveats
 

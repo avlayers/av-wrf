@@ -104,7 +104,7 @@ class TestSchedule(unittest.TestCase):
                     )
 
             iso_arg = f"2026-11-12T{prod.publish_origin_hour_utc:02d}:00:00Z"
-            self.assertTrue(is_cycle_live_fresh(prod, out, iso_arg, "2026-11-12T04:00:00Z"))
+            self.assertTrue(is_cycle_live_fresh(prod, out, iso_arg, iso_arg))
             self.assertFalse(
                 is_cycle_live_fresh(
                     prod,
@@ -178,7 +178,7 @@ class TestSchedule(unittest.TestCase):
         b = load_bundle(cfg, sorted((cfg / "products").glob("*.yaml"))[0].stem)
         product = dataclasses.replace(
             b.product,
-            region_tz="America/New_York",
+            region_tz="America/Detroit",
             local_deadline_hhmm="00:30",
             enforce_local_deadline=True,
         )
@@ -222,7 +222,7 @@ class TestSchedule(unittest.TestCase):
         b = load_bundle(cfg, next((cfg / "products").glob("*.yaml")).stem)
         product = dataclasses.replace(
             b.product,
-            region_tz="America/New_York",
+            region_tz="America/Detroit",
             local_deadline_hhmm="20:01",
             enforce_local_deadline=True,
             forcing_cycle_hour_utc=18,
