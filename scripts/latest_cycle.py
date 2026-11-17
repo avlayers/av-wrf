@@ -22,13 +22,12 @@ def _cron_offset_minutes(cron: str, forcing_hour: int) -> int:
     return (hour * 60 + minute - forcing_hour * 60) % (24 * 60)
 
 
-def latest_cycle(config_dir: Path, product_id: str, now: datetime) -> str:
-    """Return the newest publish origin whose configured trigger has passed and is live."""
+def latest_cycle(config_dir: Path, product_id: str, now: datetime, *, cron: str = "") -> str:
+    """Return the newest publish origin whose trigger has passed and is live."""
     bundle = load_bundle(config_dir, product_id)
     product = bundle.product
-    trigger = timedelta(
-        minutes=_cron_offset_minutes(product.schedule_cron_utc, product.forcing_cycle_hour_utc)
-    )
+    trigger_cron = cron or product.schedule_cron_utc
+    trigger = timedelta(minutes=_cron_offset_minutes(trigger_cron, product.forcing_cycle_hour_utc))
     forcing = now.replace(hour=product.forcing_cycle_hour_utc, minute=0, second=0, microsecond=0)
     while forcing + trigger > now:
         forcing -= timedelta(days=1)

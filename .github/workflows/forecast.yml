@@ -1,0 +1,454 @@
+name: forecast
+
+# Lists each distinct schedule_cron_utc from config/operations/forecasts.yaml.
+# GitHub schedules are static, so a new operation cron needs one entry here.
+# workflow_dispatch runs one allowlisted operation on demand from main.
+# runs-on/action must stay the first step of
+# every runs-on job; extras replaces the whole list, so labels that need both
+# caches say extras=s3-cache+ecr-cache.
+#
+# Environment forecast (restrict it to the default branch) supplies store
+# credentials on gate, publish, and dispatch. Dispatch also needs
+# AV_WRF_DISPATCH_TOKEN, a token that can create repository_dispatch on the
+# consumer repository. The workflow GITHUB_TOKEN cannot reach that repository.
+# S3 endpoint and region come from repository variables, with a secret endpoint
+# overriding the variable. The stack needs EnableEphemeralRegistry
+# (Fleet enable_ecr = true). Do not raise the 1.5 timeout multiplier; change
+# the instance after measurement.
+
+on:
+  schedule:
+    - cron: '15 23 * * *'
+  workflow_dispatch:
+    inputs:
+      product_id:
+        description: Product id listed in the operations allowlist
+        required: true
+        type: string
+      cycle:
+        description: Optional publish origin; empty uses the scheduled snap
+        required: false
+        type: string
+        default: ""
+      attempt:
+        description: Attempt id
+        required: false
+        type: string
+        default: att-01
+      environment:
+        description: Consumer environment; empty uses the operations file
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forecast
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/spot=true/image=ubuntu24-full-arm64/extras=s3-cache
+    timeout-minutes: 10
+    outputs:
+      runs: ${{ steps.select.outputs.runs }}
+      image_name: ${{ steps.select.outputs.image_name }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - name: Require the default branch
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Forecast runs only from the default branch"
+            exit 1
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - id: select
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'schedule' }}
+          CRON: ${{ github.event.schedule }}
+          PRODUCT: ${{ github.event_name == 'workflow_dispatch' && inputs.product_id || '' }}
+          CYCLE: ${{ github.event_name == 'workflow_dispatch' && inputs.cycle || '' }}
+          ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && inputs.attempt || 'att-01' }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          runs=$(uv run python -m scripts.forecast_select select \
+            --mode "$MODE" --run-id "$RUN_ID" --cron "$CRON" \
+            --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT")
+          image=$(uv run python -c 'import json,sys; print(json.loads(sys.argv[1])[0]["image_name"])' "$runs")
+          {
+            echo "runs<<EOF"
+            printf '%s\n' "$runs"
+            echo "EOF"
+            echo "image_name=$image"
+          } >> "$GITHUB_OUTPUT"
+
+  gate:
+    needs: resolve
+    if: github.ref == 'refs/heads/main' && needs.resolve.result == 'success'
+    environment: forecast
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/spot=true/image=ubuntu24-full-arm64/extras=s3-cache
+    timeout-minutes: 10
+    outputs:
+      pending: ${{ steps.filter.outputs.pending }}
+      count: ${{ steps.filter.outputs.count }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ secrets.AV_WRF_S3_ENDPOINT || vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - id: filter
+        env:
+          RUNS: ${{ needs.resolve.outputs.runs }}
+        run: |
+          set -euo pipefail
+          : "${AV_WRF_STORE_URI:?Set the forecast environment store URI}"
+          case "$AV_WRF_STORE_URI" in
+            s3://*) ;;
+            *) echo "::error::AV_WRF_STORE_URI must be s3://"; exit 1 ;;
+          esac
+          pending=$(uv run python -m scripts.forecast_select pending --runs "$RUNS")
+          count=$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$pending")
+          if [[ "$count" == "0" ]]; then
+            pending='[{"skip":"1","solver_label":"ubuntu-latest","timeout_minutes":10,"product_id":"skip","cycle_iso":"1970-01-01T00:00:00Z","attempt":"skip","cycle_partition":"19700101/00","mpi_ranks":1,"native_timeout_s":60,"inputs_cache_key":"skip","wrfout_cache_key":"skip","geog_cache_key":"skip"}]'
+          fi
+          {
+            echo "pending<<EOF"
+            printf '%s\n' "$pending"
+            echo "EOF"
+            echo "count=$count"
+          } >> "$GITHUB_OUTPUT"
+
+  mirror:
+    needs: [resolve, gate]
+    if: >-
+      github.ref == 'refs/heads/main' && needs.gate.result == 'success'
+      && needs.gate.outputs.count != '0'
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/volume=40gb/spot=true/image=ubuntu24-full-arm64/extras=ecr-cache
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest: ${{ steps.mirror.outputs.digest }}
+      ecr_image: ${{ steps.mirror.outputs.ecr_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: mirror
+        env:
+          IMAGE_NAME: ${{ needs.resolve.outputs.image_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RUNS_ON_ECR_CACHE:-}" ]]; then
+            echo "::error::EnableEphemeralRegistry (Fleet enable_ecr) is required"
+            exit 1
+          fi
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          src="ghcr.io/${owner}/${IMAGE_NAME}:main"
+          docker pull "$src"
+          ref="${src%%:*}"
+          digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$src" \
+            | awk -v prefix="${ref}@" 'index($0, prefix)==1 { sub(/^.*@/, ""); print; exit }')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          tag="solver-${digest#sha256:}"
+          docker tag "$src" "${RUNS_ON_ECR_CACHE}:${tag}"
+          docker push "${RUNS_ON_ECR_CACHE}:${tag}"
+          {
+            echo "digest=$digest"
+            echo "ecr_image=${RUNS_ON_ECR_CACHE}:${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+  prepare:
+    needs: [gate, mirror]
+    if: >-
+      github.ref == 'refs/heads/main' && needs.mirror.result == 'success'
+      && needs.gate.outputs.count != '0'
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/ram=8/volume=120gb:gp3/spot=true/image=ubuntu24-full-arm64/extras=s3-cache+ecr-cache
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        run: ${{ fromJson(needs.gate.outputs.pending) }}
+    env:
+      SCRATCH: ${{ github.workspace }}/scratch
+      IMAGE: ${{ needs.mirror.outputs.ecr_image }}
+      OCI_DIGEST: ${{ needs.mirror.outputs.digest }}
+      PRODUCT: ${{ matrix.run.product_id }}
+      CYCLE: ${{ matrix.run.cycle_iso }}
+      ATTEMPT: ${{ matrix.run.attempt }}
+      PARTITION: ${{ matrix.run.cycle_partition }}
+      MPI_RANKS: ${{ matrix.run.mpi_ranks }}
+      NATIVE_TIMEOUT_S: ${{ matrix.run.native_timeout_s }}
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: geog
+        with:
+          path: scratch/geog-archives
+          key: ${{ matrix.run.geog_cache_key }}
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: inputs
+        with:
+          path: scratch/bundle
+          key: ${{ matrix.run.inputs_cache_key }}
+      - name: Pull the mirrored solver digest
+        run: docker pull "$IMAGE"
+      - name: Extract static geography on an inputs-cache miss
+        if: steps.inputs.outputs.cache-hit != 'true'
+        run: bash scripts/forecast_run.sh extract-geog
+      - name: Save compressed geography archives
+        if: success() && steps.inputs.outputs.cache-hit != 'true' && steps.geog.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: scratch/geog-archives
+          key: ${{ matrix.run.geog_cache_key }}
+      - name: Plan and acquire
+        env:
+          INPUTS_HIT: ${{ steps.inputs.outputs.cache-hit }}
+        run: bash scripts/forecast_run.sh prepare
+      - name: Save prepared inputs
+        if: success() && steps.inputs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: scratch/bundle
+          key: ${{ matrix.run.inputs_cache_key }}
+
+  solve:
+    needs: [gate, mirror, prepare]
+    if: >-
+      github.ref == 'refs/heads/main' && needs.prepare.result == 'success'
+      && needs.gate.outputs.count != '0'
+    runs-on: ${{ matrix.run.skip == '1' && 'ubuntu-latest' || matrix.run.solver_label }}
+    timeout-minutes: ${{ matrix.run.timeout_minutes }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        run: ${{ fromJson(needs.gate.outputs.pending) }}
+    env:
+      SCRATCH: ${{ github.workspace }}/scratch
+      IMAGE: ${{ needs.mirror.outputs.ecr_image }}
+      OCI_DIGEST: ${{ needs.mirror.outputs.digest }}
+      PRODUCT: ${{ matrix.run.product_id }}
+      CYCLE: ${{ matrix.run.cycle_iso }}
+      ATTEMPT: ${{ matrix.run.attempt }}
+      PARTITION: ${{ matrix.run.cycle_partition }}
+      MPI_RANKS: ${{ matrix.run.mpi_ranks }}
+      NATIVE_TIMEOUT_S: ${{ matrix.run.native_timeout_s }}
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: wrfout
+        with:
+          path: scratch/bundle
+          key: ${{ matrix.run.wrfout_cache_key }}
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: inputs
+        if: steps.wrfout.outputs.cache-hit != 'true'
+        with:
+          path: scratch/bundle
+          key: ${{ matrix.run.inputs_cache_key }}
+      - name: Pull the mirrored solver digest
+        if: steps.wrfout.outputs.cache-hit != 'true'
+        run: docker pull "$IMAGE"
+      - name: Require a complete solved bundle
+        if: steps.wrfout.outputs.cache-hit == 'true'
+        run: uv run python -m scripts.forecast_select verify-manifest "$SCRATCH/bundle"
+      - name: Solve
+        if: steps.wrfout.outputs.cache-hit != 'true'
+        run: bash scripts/forecast_run.sh solve
+      - name: Record the calibration measurement
+        if: always()
+        env:
+          RANKS: ${{ matrix.run.mpi_ranks }}
+          CACHE_HIT: ${{ steps.wrfout.outputs.cache-hit == 'true' && 'wrfout' || steps.inputs.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          seconds=missing
+          peak=missing
+          if [[ -f "$SCRATCH/solve-seconds.txt" ]]; then
+            seconds=$(cat "$SCRATCH/solve-seconds.txt")
+          fi
+          if [[ -f "$SCRATCH/solve-peak-bytes.txt" ]]; then
+            peak=$(cat "$SCRATCH/solve-peak-bytes.txt")
+          fi
+          {
+            echo "### Solve measurement"
+            echo "Wall seconds: ${seconds}"
+            echo "Sampled peak container memory bytes: ${peak}"
+            echo "MPI ranks: ${RANKS}"
+            echo "Cache hit: ${CACHE_HIT}"
+            echo "The operations estimate is a planning number. Replace it from this wall time."
+            echo "Do not raise the 1.5 timeout multiplier; change the instance if the run is slow."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload solver logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: solve-logs-${{ matrix.run.attempt }}-${{ strategy.job-index }}
+          path: |
+            scratch/logs/
+            scratch/bundle/**/rsl.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Save solved outputs
+        if: success() && steps.wrfout.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: scratch/bundle
+          key: ${{ matrix.run.wrfout_cache_key }}
+
+  publish:
+    needs: [gate, mirror, solve]
+    if: >-
+      github.ref == 'refs/heads/main' && needs.solve.result == 'success'
+      && needs.gate.outputs.count != '0'
+    environment: forecast
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/ram=8/volume=80gb:gp3/spot=true/image=ubuntu24-full-arm64/extras=s3-cache+ecr-cache
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        run: ${{ fromJson(needs.gate.outputs.pending) }}
+    env:
+      SCRATCH: ${{ github.workspace }}/scratch
+      IMAGE: ${{ needs.mirror.outputs.ecr_image }}
+      PRODUCT: ${{ matrix.run.product_id }}
+      CYCLE: ${{ matrix.run.cycle_iso }}
+      ATTEMPT: ${{ matrix.run.attempt }}
+      PARTITION: ${{ matrix.run.cycle_partition }}
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ secrets.AV_WRF_S3_ENDPOINT || vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: wrfout
+        with:
+          path: scratch/bundle
+          key: ${{ matrix.run.wrfout_cache_key }}
+      - name: Require the solved bundle
+        env:
+          HIT: ${{ steps.wrfout.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [[ "$HIT" != "true" ]]; then
+            echo "::error::Solved bundle cache missed"
+            exit 1
+          fi
+      - name: Pull the mirrored solver digest
+        run: docker pull "$IMAGE"
+      - name: Post and publish
+        run: |
+          set -euo pipefail
+          bash scripts/forecast_run.sh post
+          bash scripts/forecast_run.sh publish
+  dispatch:
+    needs: [resolve, gate, publish]
+    if: >-
+      always() && github.ref == 'refs/heads/main'
+      && needs.resolve.result == 'success' && needs.gate.result == 'success'
+      && (needs.gate.outputs.count == '0' || needs.publish.result == 'success')
+    environment: forecast
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/spot=true/image=ubuntu24-full-arm64
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        run: ${{ fromJson(needs.resolve.outputs.runs) }}
+    env:
+      PRODUCT: ${{ matrix.run.product_id }}
+      CYCLE: ${{ matrix.run.cycle_iso }}
+      ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && matrix.run.attempt || '' }}
+      CONSUMER_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || '' }}
+      AV_WRF_STORE_URI: ${{ secrets.AV_WRF_STORE_URI }}
+      AV_WRF_S3_ENDPOINT: ${{ secrets.AV_WRF_S3_ENDPOINT || vars.AV_WRF_S3_ENDPOINT }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      AV_WRF_DISPATCH_TOKEN: ${{ secrets.AV_WRF_DISPATCH_TOKEN }}
+    steps:
+      - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Dispatch the published cycle
+        run: >-
+          uv run python -m scripts.forecast_dispatch
+          --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT"
+          --environment "$CONSUMER_ENVIRONMENT"

@@ -16,6 +16,8 @@ Without `--probe`, it validates the published inventory and advances
 
 Set `AV_WRF_WEBHOOK_URL` to an HTTPS endpoint with a plain URL path. For an
 authenticated endpoint, set `AV_WRF_WEBHOOK_TOKEN` for Bearer authentication.
+`av-wrf reconcile` posts that webhook. The scheduled forecast creates a
+`repository_dispatch` with `AV_WRF_DISPATCH_TOKEN`.
 
 - **Allowed imports:** `av_wrf.contracts`, `av_wrf.runner`,
   and Python CLI/env stdlib modules (`argparse`, `os` in `env.py` only).

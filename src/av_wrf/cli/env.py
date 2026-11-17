@@ -21,6 +21,7 @@ class RuntimeEnv:
     oci_digest: str
     solver_prefix: str
     webhook_token: str = field(default="", repr=False)
+    dispatch_token: str = field(default="", repr=False)
     native_timeout_s: int | None = None
     s3: S3Config | None = None
 
@@ -49,7 +50,7 @@ def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnv:
     native_timeout_s = _optional_int(env, "AV_WRF_NATIVE_TIMEOUT_S")
     if native_timeout_s is not None and native_timeout_s < 1:
         raise ValueError("AV_WRF_NATIVE_TIMEOUT_S must be positive")
-    region = env.get("AWS_REGION", "us-east-1").strip()
+    region = env.get("AWS_REGION", "").strip() or "us-east-1"
     s3 = S3Config(
         endpoint=env.get("AV_WRF_S3_ENDPOINT", "").strip() or f"https://s3.{region}.amazonaws.com",
         region=region,
@@ -67,6 +68,7 @@ def load_runtime_env(environ: Mapping[str, str] | None = None) -> RuntimeEnv:
         oci_digest=oci_digest,
         solver_prefix=solver_prefix,
         webhook_token=env.get("AV_WRF_WEBHOOK_TOKEN", "").strip(),
+        dispatch_token=env.get("AV_WRF_DISPATCH_TOKEN", "").strip(),
         native_timeout_s=native_timeout_s,
         s3=s3,
     )
