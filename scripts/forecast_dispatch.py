@@ -90,6 +90,8 @@ def dispatch_published(
     target = next((item for item in load_targets(ops_path) if item.product_id == product_id), None)
     if target is None:
         raise ValueError(f"Product {product_id!r} is not an enabled forecast run")
+    if not target.notify:
+        raise ValueError(f"Product {product_id!r} does not send a consumer event")
     bundle = load_bundle(config_dir, product_id)
     origin, partition = parse_cycle_arg(cycle, bundle.product)
     store = open_store(store_uri, s3=load_runtime_env().s3)

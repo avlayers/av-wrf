@@ -155,16 +155,15 @@ class TestForecastSelect(unittest.TestCase):
                     run_id="run-1",
                     cron=self.cron,
                 )
-            shifted = select_runs(
-                ROOT / "config",
-                path,
-                mode="schedule",
-                now=_trigger(other),
-                run_id="run-1",
-                cron=other,
-            )
-        self.assertEqual(len(shifted), 1)
-        self.assertEqual(shifted[0].product_id, self.target.product_id)
+            with self.assertRaisesRegex(ValueError, "must equal the product schedule"):
+                select_runs(
+                    ROOT / "config",
+                    path,
+                    mode="schedule",
+                    now=_trigger(other),
+                    run_id="run-1",
+                    cron=other,
+                )
 
     def test_unknown_dispatch_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -200,7 +199,7 @@ class TestForecastSelect(unittest.TestCase):
                 verify_manifest(root)
 
     def test_workflow_owns_enabled_crons_once(self) -> None:
-        enabled = {target.schedule_cron_utc for target in self.targets}
+        enabled = {target.schedule_cron_utc for target in self.targets if target.scheduled}
         forecast = _WORKFLOWS / "forecast.yml"
         text = forecast.read_text(encoding="utf-8")
         self.assertEqual(_crons(forecast), enabled)

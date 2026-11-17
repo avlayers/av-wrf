@@ -9,7 +9,8 @@ grid_spacing_deg: 0.027
 metgrid_levels: 46
 metgrid_soil_levels: 9
 use_sh_qv: true
-# Operational files are typically present within this lag. Confirm before an allowlist entry.
+# Operational files are typically present within this lag. Measure it on the
+# manual run before registering a GitHub schedule.
 source_ready_lag_p95_hours: 3.5
 mirrors:
   - https://noaa-rrfs-ops-pds.s3.amazonaws.com

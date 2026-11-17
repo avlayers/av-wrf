@@ -1,7 +1,7 @@
 name: forecast
 
-# Lists each distinct schedule_cron_utc from config/operations/forecasts.yaml.
-# GitHub schedules are static, so a new operation cron needs one entry here.
+# Lists each scheduled cron from config/operations/forecasts.yaml.
+# GitHub schedules are static, so a new scheduled cron needs one entry here.
 # workflow_dispatch runs one allowlisted operation on demand from main.
 # runs-on/action must stay the first step of
 # every runs-on job; extras replaces the whole list, so labels that need both
@@ -28,6 +28,7 @@ on:
         type: choice
         options:
           - wrf-armenia-3km
+          - wrf-va-1km
         default: wrf-armenia-3km
       cycle:
         description: Optional publish origin; empty uses the scheduled snap
@@ -512,6 +513,7 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --locked
       - name: Dispatch the published cycle
+        if: matrix.run.notify == true
         run: >-
           uv run python -m scripts.forecast_dispatch
           --product "$PRODUCT" --cycle "$CYCLE" --attempt "$ATTEMPT"
