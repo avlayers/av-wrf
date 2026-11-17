@@ -106,64 +106,78 @@ def _quantum17(values: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
 def _step_below(groomed: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
     """Return the next lower 17-bit value, using the bin below an exact power of two."""
     grid = np.ascontiguousarray(groomed, dtype=np.float32)
-    at_pow2 = (grid.view(np.uint32) & np.uint32(0x7FFFFF)) == np.uint32(0)
-    quantum = _quantum17(grid)
+    # Quantize first so an off-grid neighbor cannot publish a value between grid points.
+    buf = groom_f32_buf(grid.astype(np.float64), 17)
+    quantized = np.frombuffer(buf, np.float32).reshape(grid.shape).copy()
+    at_pow2 = (quantized.view(np.uint32) & np.uint32(0x7FFFFF)) == np.uint32(0)
+    quantum = _quantum17(quantized)
     step = np.where(at_pow2, quantum * np.float32(0.5), quantum)
-    return grid - step.astype(np.float32)
+    return quantized - step.astype(np.float32)
 
 
-def _repair_groomed_crossing(
-    upper: npt.NDArray[np.float32], lower: npt.NDArray[np.float32]
+def _raise_hard_groomed_gap(
+    raw: RawWrfStepInput,
+    upper: npt.NDArray[np.float32],
+    lower: npt.NDArray[np.float32],
+    k: int,
+    trim: int,
+    lead_h: int | None,
+    comparison: str,
 ) -> None:
-    """Move a one-quantum tie or cross onto the greatest 17-bit value below `lower`."""
-    crossed = upper >= lower
-    if not bool(np.any(crossed)):
-        return
+    """Reject a groomed cross larger than one 17-bit quantum of the greater value."""
     excess = np.subtract(upper, lower, dtype=np.float64)
-    soft = crossed & (excess <= _quantum17(np.maximum(upper, lower)))
-    np.copyto(upper, _step_below(lower), where=soft)
+    hard = (upper >= lower) & (excess > _quantum17(np.maximum(upper, lower)))
+    if not bool(np.any(hard)):
+        return
+    y, x = (int(v) for v in np.argwhere(hard)[0])
+    raise ValueError(
+        _groomed_order_message(
+            comparison,
+            raw.valid_time_utc,
+            lead_h,
+            k,
+            y,
+            x,
+            trim,
+            float(upper[y, x]),
+            float(lower[y, x]),
+        )
+    )
 
 
-def _raise_groomed_pressure_order(
+def _snap_below(upper: npt.NDArray[np.float32], lower: npt.NDArray[np.float32]) -> None:
+    crossed = upper >= lower
+    if bool(np.any(crossed)):
+        np.copyto(upper, _step_below(lower), where=crossed)
+
+
+def _snap_groomed_column(
     raw: RawWrfStepInput,
     p_gr: npt.NDArray[np.float32],
-    psfc_2d: ArrF64,
+    psfc: ArrF64,
     trim: int,
     lead_h: int | None,
 ) -> None:
-    when = raw.valid_time_utc
-    surface = p_gr[0] >= psfc_2d
-    if bool(np.any(surface)):
-        y, x = (int(v) for v in np.argwhere(surface)[0])
-        raise ValueError(
-            _groomed_order_message(
-                "lowest level >= surface",
-                when,
-                lead_h,
-                0,
-                y,
-                x,
-                trim,
-                float(p_gr[0, y, x]),
-                float(psfc_2d[y, x]),
-            )
+    """Publish a strictly decreasing 17-bit column below PSFC.
+
+    Hard gaps use the original groomed values. The snap then walks upward, so a
+    legal surface step cannot turn the next one-quantum tie into a false fold.
+    """
+    surface = np.asarray(psfc, dtype=np.float32)
+    _raise_hard_groomed_gap(raw, p_gr[0], surface, 0, trim, lead_h, "lowest level >= surface")
+    for level in range(1, p_gr.shape[0]):
+        _raise_hard_groomed_gap(
+            raw,
+            p_gr[level],
+            p_gr[level - 1],
+            level,
+            trim,
+            lead_h,
+            f"level {level} >= level {level - 1}",
         )
-    folded = p_gr[1:] >= p_gr[:-1]
-    if bool(np.any(folded)):
-        k, y, x = (int(v) for v in np.argwhere(folded)[0])
-        raise ValueError(
-            _groomed_order_message(
-                f"level {k + 1} >= level {k}",
-                when,
-                lead_h,
-                k + 1,
-                y,
-                x,
-                trim,
-                float(p_gr[k + 1, y, x]),
-                float(p_gr[k, y, x]),
-            )
-        )
+    _snap_below(p_gr[0], surface)
+    for level in range(1, p_gr.shape[0]):
+        _snap_below(p_gr[level], p_gr[level - 1])
 
 
 def _validate_and_groom_3d_pressure(
@@ -186,13 +200,7 @@ def _validate_and_groom_3d_pressure(
         raise ValueError("Non-monotonic 3D column pressure (pressure must decrease with height)")
     p_buf = groom_f32_buf(p_pa[:k_exp], 17)
     p_gr = np.frombuffer(p_buf, dtype=np.float32).reshape(k_exp, ny, nx)
-    # Grooming moves each value by at most half a quantum, and WRF diagnoses PSFC
-    # separately from the lowest mass level. A larger gap remains a real inversion.
-    surface = np.asarray(psfc_2d, dtype=np.float32)
-    _repair_groomed_crossing(p_gr[0], surface)
-    for level in range(1, k_exp):
-        _repair_groomed_crossing(p_gr[level], p_gr[level - 1])
-    _raise_groomed_pressure_order(raw, p_gr, psfc_2d, trim, lead_h)
+    _snap_groomed_column(raw, p_gr, psfc_2d, trim, lead_h)
     return p_pa, p_buf
 
 

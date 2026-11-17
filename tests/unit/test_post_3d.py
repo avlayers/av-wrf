@@ -18,7 +18,7 @@ for p in (ROOT, ROOT / "src"):
 from av_wrf.codecs import build_synthetic_wrf_step  # noqa: E402
 from av_wrf.core import RawWrfStepInput, build_accum_baseline, post_frame  # noqa: E402
 from av_wrf.core.post_3d import (  # noqa: E402
-    _raise_groomed_pressure_order,
+    _snap_groomed_column,
     _step_below,
     crop2_f64,
     post_3d_slabs,
@@ -99,8 +99,10 @@ class TestPost3d(unittest.TestCase):
         )
 
     def test_one_quantum_groomed_cross_steps_below_the_lower_value(self) -> None:
-        low = _step_below(np.array([76084.5, 65536.0], dtype=np.float32))
-        self.assertEqual((float(low[0]), float(low[1])), (76084.0, 65535.75))
+        low = _step_below(np.array([76084.5, 65536.0, 76084.6], dtype=np.float32))
+        self.assertEqual(
+            (float(low[0]), float(low[1]), float(low[2])), (76084.0, 65535.75, 76084.0)
+        )
         trim = self.domain.bdy_trim_cells
         pb = np.frombuffer(self.raw.pb_pa.buf, np.float32).reshape(
             self.raw.pb_pa.nz, self.raw.pb_pa.ny, self.raw.pb_pa.nx
@@ -113,11 +115,18 @@ class TestPost3d(unittest.TestCase):
         levels = self._published_pressure()
         self.assertEqual(float(levels[1, 0, 0]), 87_799.5)
         self.assertTrue(bool(np.all(levels[1:] < levels[:-1])))
+        pb[0, trim, trim] = np.float32(87_799.7)
+        pb[1, trim, trim] = np.float32(87_799.4)
+        self.shared[1][0, 0] = np.float32(87_799.0)
+        cascaded = self._published_pressure()
+        self.assertEqual((float(cascaded[0, 0, 0]), float(cascaded[1, 0, 0])), (87_798.5, 87_798.0))
+        self.assertTrue(bool(np.all(cascaded[0] < self.shared[1])))
+        self.assertTrue(bool(np.all(cascaded[1:] < cascaded[:-1])))
 
     def test_groomed_level_fold_names_the_column(self) -> None:
         folded = np.array([[[88_000.0]], [[89_000.0]]], dtype=np.float32)
         with self.assertRaisesRegex(ValueError, "level 1 >= level 0") as caught:
-            _raise_groomed_pressure_order(self.raw, folded, np.array([[90_000.0]]), 1, 3)
+            _snap_groomed_column(self.raw, folded, np.array([[90_000.0]]), 1, 3)
         self.assertIn("89000.000 Pa vs 88000.000 Pa, gap 1000.000 Pa", str(caught.exception))
 
     def test_pressure_validation_includes_levels_above_exported_column(self) -> None:
