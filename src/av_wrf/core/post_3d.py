@@ -73,8 +73,76 @@ def groom_2d(values: ArrF64, keepbits: int) -> PubMass2D:
     return PubMass2D(Slab2DF32(ny, nx, groom_f32_buf(values, keepbits)))
 
 
+def _groomed_order_message(
+    comparison: str,
+    valid_time_utc: str,
+    lead_h: int | None,
+    k: int,
+    y: int,
+    x: int,
+    trim: int,
+    left_pa: float,
+    right_pa: float,
+) -> str:
+    # Published y/x omit bdy_trim_cells on each edge, so wrfout mass indices are y+trim, x+trim.
+    lead = "" if lead_h is None else f" lead_h={lead_h}"
+    gap_pa = left_pa - right_pa
+    return (
+        "Bit-groomed 3D column pressure: "
+        f"{comparison} at {valid_time_utc}{lead} "
+        f"k={k} y={y} x={x} wrfout_y={y + trim} wrfout_x={x + trim}: "
+        f"{left_pa:.3f} Pa vs {right_pa:.3f} Pa, gap {gap_pa:.3f} Pa"
+    )
+
+
+def _raise_groomed_pressure_order(
+    raw: RawWrfStepInput,
+    p_gr: npt.NDArray[np.float32],
+    psfc_2d: ArrF64,
+    trim: int,
+    lead_h: int | None,
+) -> None:
+    when = raw.valid_time_utc
+    surface = p_gr[0] >= psfc_2d
+    if bool(np.any(surface)):
+        y, x = (int(v) for v in np.argwhere(surface)[0])
+        raise ValueError(
+            _groomed_order_message(
+                "lowest level >= surface",
+                when,
+                lead_h,
+                0,
+                y,
+                x,
+                trim,
+                float(p_gr[0, y, x]),
+                float(psfc_2d[y, x]),
+            )
+        )
+    folded = p_gr[1:] >= p_gr[:-1]
+    if bool(np.any(folded)):
+        k, y, x = (int(v) for v in np.argwhere(folded)[0])
+        raise ValueError(
+            _groomed_order_message(
+                f"level {k + 1} >= level {k}",
+                when,
+                lead_h,
+                k + 1,
+                y,
+                x,
+                trim,
+                float(p_gr[k + 1, y, x]),
+                float(p_gr[k, y, x]),
+            )
+        )
+
+
 def _validate_and_groom_3d_pressure(
-    raw: RawWrfStepInput, psfc_2d: ArrF64, trim: int, k_exp: int
+    raw: RawWrfStepInput,
+    psfc_2d: ArrF64,
+    trim: int,
+    k_exp: int,
+    lead_h: int | None,
 ) -> tuple[ArrF64, array[float]]:
     ny, nx = psfc_2d.shape
     shape = (raw.cldfra.nz, ny, nx)
@@ -89,8 +157,7 @@ def _validate_and_groom_3d_pressure(
         raise ValueError("Non-monotonic 3D column pressure (pressure must decrease with height)")
     p_buf = groom_f32_buf(p_pa[:k_exp], 17)
     p_gr = np.frombuffer(p_buf, dtype=np.float32).reshape(k_exp, ny, nx)
-    if bool(np.any(p_gr[0] >= psfc_2d)) or bool(np.any(p_gr[1:] >= p_gr[:-1])):
-        raise ValueError("Bit-groomed 3D column pressure violated monotonic ordering")
+    _raise_groomed_pressure_order(raw, p_gr, psfc_2d, trim, lead_h)
     return p_pa, p_buf
 
 
@@ -115,7 +182,10 @@ def _post_mslp(
 
 
 def _cloud_and_thermo(
-    raw: RawWrfStepInput, domain: DomainProfile, shared_2d: SharedSurface
+    raw: RawWrfStepInput,
+    domain: DomainProfile,
+    shared_2d: SharedSurface,
+    lead_h: int | None,
 ) -> tuple[
     ArrF64,
     array[float],
@@ -129,7 +199,7 @@ def _cloud_and_thermo(
     trim, k_exp = domain.bdy_trim_cells, domain.exported_levels_k
     ny, nx = psfc.shape
     shp3 = (k_exp, ny, nx)
-    p_all, p_buf = _validate_and_groom_3d_pressure(raw, psfc, trim, k_exp)
+    p_all, p_buf = _validate_and_groom_3d_pressure(raw, psfc, trim, k_exp, lead_h)
     cloud_shape = (raw.cldfra.nz, ny, nx)
     cloud = _mass_view(raw.cldfra, trim, cloud_shape)
     # Cloud fraction is bounded by definition; tolerate only float32 round-off.
@@ -202,10 +272,12 @@ def post_3d_slabs(
     domain: DomainProfile,
     science: ScienceProfile,
     shared_2d: SharedSurface,
+    *,
+    lead_h: int | None = None,
 ) -> tuple[dict[str, PubMass3D], dict[str, PubMass2D], tuple[float, float, int, float]]:
     k_exp = domain.exported_levels_k
     phi = staggered_face_phi(raw, domain.bdy_trim_cells, k_exp)
-    p_pa, p_buf, z_buf, t_buf, tk, spfh, columns = _cloud_and_thermo(raw, domain, shared_2d)
+    p_pa, p_buf, z_buf, t_buf, tk, spfh, columns = _cloud_and_thermo(raw, domain, shared_2d, lead_h)
     u_e, v_e, omega, stats = _wind_stats(
         raw, domain, science, shared_2d, (p_pa, z_buf, tk, spfh, phi)
     )

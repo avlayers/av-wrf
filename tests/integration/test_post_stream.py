@@ -46,9 +46,14 @@ def test_releases_raw_and_normalized_volumes_before_loading_next_step(stream_cas
     previous: list[ReferenceType[object]] = []
 
     def record_frame(
-        base: AccumBaseline, raw: RawWrfStepInput, domain: DomainProfile, science: ScienceProfile
+        base: AccumBaseline,
+        raw: RawWrfStepInput,
+        domain: DomainProfile,
+        science: ScienceProfile,
+        *,
+        lead_h: int | None = None,
     ) -> tuple[NormalizedWrfFrame, AccumBaseline]:
-        frame, result = post_frame(base, raw, domain, science)
+        frame, result = post_frame(base, raw, domain, science, lead_h=lead_h)
         previous.extend((ref(frame), ref(frame.fields_3d["pressure_pa"].buf)))
         return frame, result
 

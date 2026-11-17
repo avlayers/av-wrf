@@ -137,7 +137,12 @@ def _post_surface_slabs(
 
 
 def post_frame(
-    prev: AccumBaseline, raw: RawWrfStepInput, domain: DomainProfile, science: ScienceProfile
+    prev: AccumBaseline,
+    raw: RawWrfStepInput,
+    domain: DomainProfile,
+    science: ScienceProfile,
+    *,
+    lead_h: int | None = None,
 ) -> tuple[NormalizedWrfFrame, AccumBaseline]:
     """Transform a finite WRF step and baseline into published model and surface fields."""
     if raw.valid_time_unix_s <= prev.valid_time_unix_s:
@@ -156,7 +161,7 @@ def post_frame(
         crop2_f64(raw.sin_alpha, trim, "SINALPHA"),
     )
     f3d, column_fields, (min_dz, max_dz, min_bl, max_cfl) = post_3d_slabs(
-        raw, domain, science, shared_2d
+        raw, domain, science, shared_2d, lead_h=lead_h
     )
     next_base = _crop_accum_baseline(raw, trim)
     f2d = _post_surface_slabs(prev, next_base, raw, trim, science, shared_2d)
