@@ -1,5 +1,3 @@
-"""Selector budget, cron snap, and workflow schedule parity."""
-
 from __future__ import annotations
 
 import re
@@ -39,6 +37,16 @@ from av_wrf.runner import load_bundle, published_cycle_prefix  # noqa: E402
 _OPS = ROOT / "config" / "operations" / "forecasts.yaml"
 _WORKFLOWS = ROOT / ".github" / "workflows"
 _CRON_RE = re.compile(r"cron:\s*['\"]([^'\"]+)['\"]")
+_IMAGE_PATHS = (
+    "docker/**",
+    "src/av_wrf/**",
+    "scripts/**",
+    "config/**",
+    "pyproject.toml",
+    "uv.lock",
+    ".dockerignore",
+    ".github/workflows/images.yml",
+)
 
 
 def _product_menu(workflow: str) -> tuple[str, tuple[str, ...]]:
@@ -61,6 +69,14 @@ def _product_menu(workflow: str) -> tuple[str, tuple[str, ...]]:
         if stripped.startswith("default:"):
             default = stripped.split(":", 1)[1].strip().strip("\"'")
     return default, tuple(options)
+
+
+def _push_paths(workflow: str) -> tuple[str, ...]:
+    push = workflow.split("\njobs:", 1)[0].split("\n  workflow_dispatch:", 1)[0]
+    found = [
+        line.strip()[2:].strip("\"'") for line in push.splitlines() if line.strip().startswith("- ")
+    ]
+    return tuple(found)
 
 
 def _crons(path: Path) -> set[str]:
@@ -161,10 +177,10 @@ class TestForecastSelect(unittest.TestCase):
                 product_id="not-a-configured-product",
             )
 
-    def test_solver_label_is_on_demand_arm_with_both_caches(self) -> None:
+    def test_solver_label_uses_the_run_spot_flag(self) -> None:
         job = self._select("schedule", self.trigger, cron=self.cron)
         self.assertIn("runs-on=run-1/", job.solver_label)
-        self.assertIn("spot=false", job.solver_label)
+        self.assertIn(f"spot={'true' if self.target.spot else 'false'}", job.solver_label)
         self.assertIn("image=ubuntu24-full-arm64", job.solver_label)
         self.assertIn("extras=s3-cache+ecr-cache", job.solver_label)
         self.assertIn("+".join(self.target.families), job.solver_label)
@@ -215,6 +231,12 @@ class TestForecastSelect(unittest.TestCase):
             owners = [path.name for path in _WORKFLOWS.glob("*.yml") if cron in _crons(path)]
             self.assertEqual(owners, ["forecast.yml"])
         images = (_WORKFLOWS / "images.yml").read_text(encoding="utf-8")
+        self.assertNotIn("pull_request:", images)
+        self.assertIn("if: github.ref == 'refs/heads/main'", images)
+        self.assertEqual(_push_paths(images), _IMAGE_PATHS)
+        self.assertIn("cpu=8", images)
+        self.assertIn("JOBS=8", images)
+        self.assertNotIn("runner=2cpu-linux-arm64", images)
         self.assertIn("push: false", images)
         self.assertIn("docker push", images)
         action_at = images.index("runs-on/action@")

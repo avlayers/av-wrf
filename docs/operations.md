@@ -14,9 +14,9 @@ emits the runs for the triggering cron or the dispatch input. `gate` uses the
 false`, so a second dispatch waits and then sees that receipt. Mirror, prepare,
 solve, and publish run only when something is still unpublished.
 
-Prepare and publish stay on 2 vCPU spot runners. Solve is on-demand
-(`spot=false`) because checkpoint restart is still an open gate. A spot
-interruption fails the job; the next attempt downloads again. There is no
+Prepare and publish stay on 2 vCPU spot runners. Each run sets `spot` on
+its solver label. A spot interruption fails the job; the next attempt
+downloads again. There is no
 in-job sleep. The heavy runner is not requested until prepare succeeds.
 
 The solver label asks for `c8g.8xlarge` then `c7g.8xlarge`, with
@@ -36,7 +36,8 @@ The stack also needs `EnableEphemeralRegistry`
 (`enable_ecr = true`). Mirror records the GHCR `sha256` digest and later jobs
 pass that exact value as `AV_WRF_OCI_DIGEST`. When that tag is absent, mirror
 starts the images workflow on main when no images run is active, then waits
-for the push before the pull.
+for the push before the pull. Main builds that image on an 8 vCPU runner when
+an image input changes. A pull request does not compile it.
 
 The consumer event is `repository_dispatch` type `upstream-cycle-ready` with
 `environment`, `model`, and the UTC hour. `AV_WRF_DISPATCH_TOKEN` creates that
