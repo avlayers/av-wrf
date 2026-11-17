@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
 ROOT = Path(__file__).resolve().parents[2]
 for p in (ROOT, ROOT / "src"):
@@ -16,7 +17,12 @@ for p in (ROOT, ROOT / "src"):
 
 from av_wrf.codecs import build_synthetic_wrf_step  # noqa: E402
 from av_wrf.core import RawWrfStepInput, build_accum_baseline, post_frame  # noqa: E402
-from av_wrf.core.post_3d import crop2_f64, post_3d_slabs  # noqa: E402
+from av_wrf.core.post_3d import (  # noqa: E402
+    _snap_groomed_column,
+    _step_below,
+    crop2_f64,
+    post_3d_slabs,
+)
 from av_wrf.runner import load_bundle  # noqa: E402
 
 
@@ -70,12 +76,6 @@ class TestPost3d(unittest.TestCase):
                 "lowest level >= surface",
                 "89000.000 Pa vs 88000.000 Pa, gap 1000.000 Pa",
             ),
-            (
-                1,
-                np.float32(87_799.8),
-                "level 1 >= level 0",
-                "87800.000 Pa vs 87800.000 Pa, gap 0.000 Pa",
-            ),
         )
         for level, value, comparison, pressures in cases:
             with self.subTest(comparison=comparison):
@@ -88,6 +88,46 @@ class TestPost3d(unittest.TestCase):
                 self.assertIn("lead_h=3", message)
                 self.assertIn(f"wrfout_y={j} wrfout_x={i}", message)
                 self.assertIn(pressures, message)
+
+    def _published_pressure(self) -> npt.NDArray[np.float32]:
+        slabs, _, _ = post_3d_slabs(
+            self.raw, self.domain, self.bundle.science, self.shared, lead_h=71
+        )
+        ny, nx = self.shared[1].shape
+        return np.frombuffer(slabs["pressure_pa"].buf, np.float32).reshape(
+            self.domain.exported_levels_k, ny, nx
+        )
+
+    def test_one_quantum_groomed_cross_steps_below_the_lower_value(self) -> None:
+        low = _step_below(np.array([76084.5, 65536.0, 76084.6], dtype=np.float32))
+        self.assertEqual(
+            (float(low[0]), float(low[1]), float(low[2])), (76084.0, 65535.75, 76084.0)
+        )
+        trim = self.domain.bdy_trim_cells
+        pb = np.frombuffer(self.raw.pb_pa.buf, np.float32).reshape(
+            self.raw.pb_pa.nz, self.raw.pb_pa.ny, self.raw.pb_pa.nx
+        )
+        self.shared[1][0, 0] = np.float32(87_799.5)
+        surface = self._published_pressure()
+        self.assertEqual(float(surface[0, 0, 0]), 87_799.0)
+        pb[1, trim, trim] = np.float32(87_799.8)
+        self.shared[1][0, 0] = np.float32(88_000.0)
+        levels = self._published_pressure()
+        self.assertEqual(float(levels[1, 0, 0]), 87_799.5)
+        self.assertTrue(bool(np.all(levels[1:] < levels[:-1])))
+        pb[0, trim, trim] = np.float32(87_799.7)
+        pb[1, trim, trim] = np.float32(87_799.4)
+        self.shared[1][0, 0] = np.float32(87_799.0)
+        cascaded = self._published_pressure()
+        self.assertEqual((float(cascaded[0, 0, 0]), float(cascaded[1, 0, 0])), (87_798.5, 87_798.0))
+        self.assertTrue(bool(np.all(cascaded[0] < self.shared[1])))
+        self.assertTrue(bool(np.all(cascaded[1:] < cascaded[:-1])))
+
+    def test_groomed_level_fold_names_the_column(self) -> None:
+        folded = np.array([[[88_000.0]], [[89_000.0]]], dtype=np.float32)
+        with self.assertRaisesRegex(ValueError, "level 1 >= level 0") as caught:
+            _snap_groomed_column(self.raw, folded, np.array([[90_000.0]]), 1, 3)
+        self.assertIn("89000.000 Pa vs 88000.000 Pa, gap 1000.000 Pa", str(caught.exception))
 
     def test_pressure_validation_includes_levels_above_exported_column(self) -> None:
         pb = np.frombuffer(self.raw.pb_pa.buf, np.float32).reshape(
