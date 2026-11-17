@@ -58,10 +58,12 @@ _SNOW = frozenset(((0, 1, 11), (0, 1, 13)))
 _LONG_HOURS = frozenset((0, 6, 12, 18))
 _SHORT_HOURS = frozenset((3, 9, 15, 21))
 _PACKING = ("grid_complex_spatial_differencing",)
+# grib_ls -j -p returns only the requested keys, so the Lambert template must be named.
 _KEYS = (
     GRIB_KEYS + ",numberOfMissing:i,uvRelativeToGrid:i,typeOfSecondFixedSurface:i,"
     "DxInMetres:d,DyInMetres:d,LaDInDegrees:d,LoVInDegrees:d,"
-    "Latin1InDegrees:d,Latin2InDegrees:d,shapeOfTheEarth:i"
+    "Latin1InDegrees:d,Latin2InDegrees:d,shapeOfTheEarth:i,"
+    "gridDefinitionTemplateNumber:i"
 )
 _METGRID = (
     "PRES",

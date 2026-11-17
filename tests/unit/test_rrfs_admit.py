@@ -94,8 +94,14 @@ def _messages(
 def _admit(path: Path, messages: list[dict[str, object]], fhr: int = 0) -> str:
     bundle = _bundle()
     path.write_bytes(b" " * (20 * len(messages)))
-    with patch("av_wrf.runner.forcing_rrfs.inspect_grib", return_value=messages):
-        return admit_grib(
+    requested: list[str] = []
+
+    def _inspect(_path: Path, keys: str) -> list[dict[str, object]]:
+        requested.append(keys)
+        return messages
+
+    with patch("av_wrf.runner.forcing_rrfs.inspect_grib", side_effect=_inspect):
+        digest = admit_grib(
             path,
             _CYCLE,
             bundle.primary_source,
@@ -103,6 +109,8 @@ def _admit(path: Path, messages: list[dict[str, object]], fhr: int = 0) -> str:
             fhr,
             rrfs_required_fields("full"),
         )
+    assert "gridDefinitionTemplateNumber:i" in requested[0]
+    return digest
 
 
 def test_product_is_one_domain_and_requests_thirty_one_hours() -> None:
