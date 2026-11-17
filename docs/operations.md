@@ -36,7 +36,8 @@ The stack also needs `EnableEphemeralRegistry`
 (`enable_ecr = true`). Mirror records the GHCR `sha256` digest and later jobs
 pass that exact value as `AV_WRF_OCI_DIGEST`. When that tag is absent, mirror
 starts the images workflow on main when no images run is active, then waits
-for the push before the pull.
+for the push before the pull. Main builds that image on a 2 vCPU runner when
+an image input changes. A pull request does not compile it.
 
 The consumer event is `repository_dispatch` type `upstream-cycle-ready` with
 `environment`, `model`, and the UTC hour. `AV_WRF_DISPATCH_TOKEN` creates that
