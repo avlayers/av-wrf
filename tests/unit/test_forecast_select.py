@@ -183,6 +183,7 @@ class TestForecastSelect(unittest.TestCase):
         self.assertIn("image=ubuntu24-full-arm64", job.solver_label)
         self.assertIn("extras=s3-cache+ecr-cache", job.solver_label)
         self.assertIn("+".join(self.target.families), job.solver_label)
+        self.assertEqual(job.volume, self.target.volume)
         self.assertEqual(job.timeout_minutes, timeout_minutes(self.target.estimate_minutes))
 
     def test_manifest_rejects_a_short_restore(self) -> None:
@@ -221,6 +222,8 @@ class TestForecastSelect(unittest.TestCase):
         self.assertIn("group: forecast", text)
         self.assertLess(text.index("runs-on/action@"), text.index("actions/cache"))
         self.assertIn("extras=s3-cache+ecr-cache", text)
+        publish = text.split("\n  publish:", 1)[1].split("\n  dispatch:", 1)[0]
+        self.assertIn("volume=${{ matrix.run.volume }}", publish)
         self.assertIn("scripts.forecast_dispatch", text)
         self.assertNotIn("AV_WRF_WEBHOOK", text)
         notify = (_WORKFLOWS / "notify.yml").read_text(encoding="utf-8")

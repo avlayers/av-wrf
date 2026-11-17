@@ -50,6 +50,7 @@ class ForecastJob:
     native_timeout_s: int
     mpi_ranks: int
     solver_label: str
+    volume: str
     image_name: str
     inputs_cache_key: str
     wrfout_cache_key: str

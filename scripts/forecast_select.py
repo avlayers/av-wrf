@@ -120,6 +120,7 @@ def _job(
         native_timeout_s=native_timeout_s(budget),
         mpi_ranks=target.mpi_ranks,
         solver_label=solver_label(run_id, target),
+        volume=target.volume,
         image_name=target.image_name,
         inputs_cache_key=f"{prefix}-inputs",
         wrfout_cache_key=f"{prefix}-wrfout",
