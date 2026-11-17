@@ -3,9 +3,16 @@ runs:
   - product_id: wrf-armenia-3km
     schedule_cron_utc: "15 23 * * *"
     estimate_minutes: 240
+    # On-demand fallback order. Spot uses price-capacity-optimized.
     families:
       - c8g.8xlarge
       - c7g.8xlarge
+      - m7g.8xlarge
+      - c9g.8xlarge
+      - m8g.8xlarge
+      - m9g.8xlarge
+      - r7g.8xlarge
+      - r8g.8xlarge
     vcpus: 32
     mpi_ranks: 24
     volume: 200gb:gp3:750mbs:4000iops

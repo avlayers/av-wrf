@@ -19,13 +19,18 @@ its solver label. A spot interruption fails the job; the next attempt
 downloads again. There is no
 in-job sleep. The heavy runner is not requested until prepare succeeds.
 
-The solver label asks for `c8g.8xlarge` then `c7g.8xlarge`, with
-`image=ubuntu24-full-arm64`. The first real run is the calibration. Its job
-summary records wall time, sampled container memory, MPI ranks, and which
-cache hit. Replace the planning estimate from that measurement. Do not
-raise the 1.5 job-timeout multiplier; change the instance instead. Solve
-restores the wrfout cache before `wrf.exe` and skips the solver when that
-restore matches its size manifest. Publish fails when the wrfout cache misses.
+The solver label lists the 32-vCPU EBS `8xlarge` types `c8g`, `c7g`, `m7g`,
+`c9g`, `m8g`, `m9g`, `r7g`, and `r8g`, with `cpu=32` and
+`image=ubuntu24-full-arm64`. `spot=true` is price-capacity-optimized.
+List order is the on-demand fallback, starting at `c8g.8xlarge`. The
+published solver image is `armv8.2-a+fp16+dotprod`, which those CPUs
+implement. The first real run is the calibration. Its job summary records
+wall time, sampled container memory, MPI ranks, the runner type and
+lifecycle, and which cache hit. Replace the planning estimate from that
+measurement. Do not raise the 1.5 job-timeout multiplier; change the
+instance instead. Solve restores the wrfout cache before `wrf.exe` and
+skips the solver when that restore matches its size manifest. Publish
+fails when the wrfout cache misses.
 
 ## Environment
 

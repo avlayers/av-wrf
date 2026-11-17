@@ -13,6 +13,12 @@ NATIVE_TIMEOUT_MARGIN_MIN = 15
 GEOG_CACHE_KEY = "wps-geog-high-res-v1"
 _MANIFEST = "MANIFEST.txt"
 _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Numeric size times 4 is the vCPU count (8xlarge is 32). Matching names are
+# EBS-only arm64 types on Graviton3, Graviton4, and Graviton5. The solver
+# image is armv8.2-a+fp16+dotprod, which those CPUs implement. Generation 6
+# stays outside this pool because its throughput can miss the job cap.
+_SOLVER_TYPE = re.compile(r"[cmr][789]g\.([0-9]+)xlarge")
+_SOLVER_SIZES = frozenset({2, 4, 8, 12, 16, 24, 48})
 _ENVIRONMENTS = frozenset({"staging", "production"})
 
 
@@ -133,12 +139,13 @@ def repository_parts(repository: str) -> tuple[str, str]:
 
 def _target(item: dict[str, object]) -> ForecastTarget:
     repository, model, environment = _consumer(item)
+    vcpus = _req_int(item, "vcpus")
     return ForecastTarget(
         product_id=_req_str(item, "product_id"),
         schedule_cron_utc=_daily_cron(_req_str(item, "schedule_cron_utc")),
         estimate_minutes=_req_int(item, "estimate_minutes"),
-        families=_families(item),
-        vcpus=_req_int(item, "vcpus"),
+        families=_families(item, vcpus),
+        vcpus=vcpus,
         mpi_ranks=_req_int(item, "mpi_ranks"),
         volume=_req_str(item, "volume"),
         spot=_req_bool(item, "spot"),
@@ -161,14 +168,25 @@ def _consumer(item: dict[str, object]) -> tuple[str, str, str]:
     return repository, model, environment
 
 
-def _families(item: dict[str, object]) -> tuple[str, ...]:
+def _families(item: dict[str, object], vcpus: int) -> tuple[str, ...]:
     raw = item.get("families")
     if not isinstance(raw, list) or not raw:
         raise ValueError("families must be a non-empty list")
     names = tuple(entry.strip() for entry in raw if isinstance(entry, str) and entry.strip())
-    if len(names) != len(raw):
-        raise ValueError("families entries must be instance type names")
+    if len(names) != len(raw) or any(_family_vcpus(name) != vcpus for name in names):
+        raise ValueError("families must be Graviton3, Graviton4, or Graviton5 types of vcpus")
     return names
+
+
+def _family_vcpus(name: str) -> int:
+    """Return the vCPU count of one allowlisted Graviton type, or 0."""
+    match = _SOLVER_TYPE.fullmatch(name)
+    if match is None:
+        return 0
+    size = int(match.group(1))
+    if size not in _SOLVER_SIZES:
+        return 0
+    return size * 4
 
 
 def _daily_cron(cron: str) -> str:
