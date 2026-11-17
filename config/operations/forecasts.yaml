@@ -18,6 +18,6 @@ runs:
     volume: 200gb:gp3:750mbs:4000iops
     spot: true
     image_name: av-wrf-solver
-    consumer_repository: jdorrance/av-layers
+    consumer_repository: avlayers/av-layers
     consumer_model: av-wrf
     consumer_environment: production
