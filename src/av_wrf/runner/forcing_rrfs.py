@@ -293,6 +293,10 @@ def admit_grib(
         # Process 134 is present on f000 as well as later hours.
         if identity != expected or row.get("generatingProcessIdentifier") != 134:
             raise ValueError(f"Wrong RRFS source, cycle or valid time in {path} for f{fhr:03d}")
+        # A blank Vtable column 12 is template 4.0. ungrib skips every other template.
+        # https://github.com/wrf-model/WPS/blob/v4.7.0/ungrib/src/rd_grib2.F#L687
+        if row.get("productDefinitionTemplateNumber") != 0:
+            raise ValueError(f"RRFS product template must be 4.0 in {path}")
         _accept(row, path, fields, required)
     if missing := required - fields:
         raise ValueError(f"Missing {len(missing)} RRFS messages in {path}")

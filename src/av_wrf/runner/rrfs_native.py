@@ -53,10 +53,30 @@ def _fraction(values: npt.NDArray[np.float64], name: str) -> None:
 
 
 def _soil_levels(ds: netCDF4.Dataset) -> None:
-    values = [float(item) for item in ds.variables["SOIL_LEVELS"][:].ravel()]
-    same = len(values) == 9 and all(
-        abs(got - exp) <= 1e-6 for got, exp in zip(values, _SOIL_CM, strict=True)
-    )
+    """Require the nine centimetre depths, in any order, on one constant slab.
+
+    Time-dependent storage keeps the deeper level at the head, and metgrid writes
+    that order across the tile. real.exe flips the index and sorts it with the soil.
+    https://github.com/wrf-model/WPS/blob/v4.7.0/metgrid/src/storage_module.F#L530
+    https://github.com/wrf-model/WRF/blob/v4.8.0/share/module_optional_input.F#L1304
+    """
+    if "SOIL_LEVELS" not in ds.variables:
+        raise ValueError("Missing SOIL_LEVELS")
+    var = ds.variables["SOIL_LEVELS"]
+    if "num_soilt_levels" not in var.dimensions:
+        raise ValueError("SOIL_LEVELS must be the nine RRFS depths in centimetres")
+    axis = var.dimensions.index("num_soilt_levels")
+    values = np.asarray(var[:], dtype=float)
+    if values.shape[axis] != 9:
+        raise ValueError("SOIL_LEVELS must be the nine RRFS depths in centimetres")
+    column = np.moveaxis(values, axis, 0).reshape(9, -1)
+    if column.shape[1] < 1 or not bool(np.isfinite(column).all()):
+        raise ValueError("SOIL_LEVELS must be the nine RRFS depths in centimetres")
+    level = column[:, :1]
+    if not bool(np.allclose(column, level, rtol=0.0, atol=1e-6)):
+        raise ValueError("SOIL_LEVELS must be horizontally constant")
+    got = tuple(sorted(float(item) for item in level[:, 0]))
+    same = all(abs(item - exp) <= 1e-6 for item, exp in zip(got, _SOIL_CM, strict=True))
     if not same:
         raise ValueError("SOIL_LEVELS must be the nine RRFS depths in centimetres")
 

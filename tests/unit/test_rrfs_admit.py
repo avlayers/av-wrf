@@ -207,3 +207,7 @@ def test_soil_and_snow_masks_are_allowed_and_a_masked_pressure_field_is_not(
     bad = _grid(shapeOfTheEarth=1)
     with pytest.raises(ValueError, match="earth shape"):
         require_rrfs_coverage(bad, (30.0, 35.0, 32.0, 37.0))
+    shifted = _messages(tuple(sorted(rrfs_required_fields("full"))))
+    shifted[0]["productDefinitionTemplateNumber"] = 8
+    with pytest.raises(ValueError, match="product template"):
+        _admit(tmp_path / "template.grib2", shifted)

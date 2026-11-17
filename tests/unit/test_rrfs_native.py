@@ -109,6 +109,26 @@ def test_met_em_accepts_the_nine_centimetre_depths(tmp_path: Path) -> None:
         admit_met_em(path)
 
 
+def test_met_em_accepts_the_deepest_first_soil_slab(tmp_path: Path) -> None:
+    path = tmp_path / "slab.nc"
+    _met_em(path)
+    with netCDF4.Dataset(str(path), "a") as ds:
+        ds.renameVariable("SOIL_LEVELS", "flat")
+        ds.createDimension("Time", 1)
+        ds.createDimension("south_north", 2)
+        ds.createDimension("west_east", 3)
+        # metgrid writes the deeper level at the first vertical index.
+        levels = np.asarray(_SOIL_CM[::-1], dtype=np.float32).reshape(1, 9, 1, 1)
+        slab = np.broadcast_to(levels, (1, 9, 2, 3)).copy()
+        dims = ("Time", "num_soilt_levels", "south_north", "west_east")
+        ds.createVariable("SOIL_LEVELS", "f4", dims)[:] = slab
+    admit_met_em(path)
+    with netCDF4.Dataset(str(path), "a") as ds:
+        ds.variables["SOIL_LEVELS"][0, 0, 1, 2] = 1.0
+    with pytest.raises(ValueError, match="horizontally constant"):
+        admit_met_em(path)
+
+
 def test_wrfinput_requires_varying_finite_soil(tmp_path: Path) -> None:
     path = tmp_path / "wrfinput.nc"
     _wrfinput(path)
