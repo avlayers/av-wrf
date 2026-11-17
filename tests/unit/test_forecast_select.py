@@ -236,7 +236,7 @@ class TestForecastSelect(unittest.TestCase):
         self.assertEqual(_push_paths(images), _IMAGE_PATHS)
         self.assertIn("cpu=8", images)
         self.assertIn("JOBS=8", images)
-        self.assertNotIn("runner=2cpu-linux-arm64", images)
+        self.assertIn("The solver image publishes from main", images)
         self.assertIn("push: false", images)
         self.assertIn("docker push", images)
         action_at = images.index("runs-on/action@")

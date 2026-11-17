@@ -34,10 +34,11 @@ and `dispatch` receive it. `dispatch` runs after a successful publish, and also
 when the cycle receipt is already in the store. A failed POST can be retried.
 The stack also needs `EnableEphemeralRegistry`
 (`enable_ecr = true`). Mirror records the GHCR `sha256` digest and later jobs
-pass that exact value as `AV_WRF_OCI_DIGEST`. When that tag is absent, mirror
-starts the images workflow on main when no images run is active, then waits
-for the push before the pull. Main builds that image on an 8 vCPU runner when
-an image input changes. A pull request does not compile it.
+pass that exact value as `AV_WRF_OCI_DIGEST`. Mirror waits while an images run
+is publishing, then pulls. When the tag is absent it starts the images
+workflow. A failed images run for this commit stops the forecast. Main builds
+that image on an 8 vCPU runner when an image input changes. A pull request
+does not compile it.
 
 The consumer event is `repository_dispatch` type `upstream-cycle-ready` with
 `environment`, `model`, and the UTC hour. `AV_WRF_DISPATCH_TOKEN` creates that

@@ -26,6 +26,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  main-only:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::The solver image publishes from main"
+          exit 1
   images:
     if: github.ref == 'refs/heads/main'
     # runs-on/action must stay the first step so Magic Cache serves type=gha.

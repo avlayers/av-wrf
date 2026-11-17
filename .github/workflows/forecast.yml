@@ -13,9 +13,10 @@ name: forecast
 # consumer repository. The workflow GITHUB_TOKEN cannot reach that repository.
 # S3 endpoint and region come from repository variables, with a secret endpoint
 # overriding the variable. The stack needs EnableEphemeralRegistry
-# (Fleet enable_ecr = true). Mirror waits for the solver tag that images.yml
-# pushes on main, and starts that workflow when it is idle. Do not raise the
-# 1.5 timeout multiplier; change the instance after measurement.
+# (Fleet enable_ecr = true). Mirror waits while images.yml is publishing, and
+# starts that workflow when the tag is missing. A failed images run for this
+# commit stops the forecast. Do not raise the 1.5 timeout multiplier; change
+# the instance after measurement.
 
 on:
   schedule:
@@ -170,6 +171,7 @@ jobs:
         shell: bash
     steps:
       - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ghcr.io
@@ -190,33 +192,36 @@ jobs:
           repo="${GITHUB_REPOSITORY}"
           api="https://api.github.com/repos/${repo}"
           api="${api}/actions/workflows/images.yml"
-          # :main appears only after images.yml pushes. Wait for that build
-          # so the pull reads a published tag.
+          # A newer images run can still be publishing after :main exists.
+          # Wait for that run, then pull the tag it pushed.
           published() { docker manifest inspect "$src" >/dev/null 2>&1; }
-          active_images() {
-            local py
-            py='import json,sys; d=json.load(sys.stdin)'
-            py="${py}; n=sum(r[\"status\"]!=\"completed\""
-            py="${py} for r in d[\"workflow_runs\"]); print(n)"
+          runs_json() {
             curl -fsS \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${api}/runs?branch=main&per_page=20" \
-              | python3 -c "$py"
+              "${api}/runs?branch=main&per_page=100"
           }
-          if ! published; then
-            saw=0
-            asked=0
-            deadline=$((SECONDS + 95 * 60))
-            while (( SECONDS < deadline )); do
-              if published; then
-                break
-              fi
-              active=$(active_images)
-              if (( active > 0 )); then
-                saw=1
-              elif (( asked == 0 )); then
+          poll() {
+            local flag=0
+            published && flag=1
+            runs_json | python3 -m scripts.forecast_image \
+              --sha "$GITHUB_SHA" --published "$flag" \
+              --asked "$asked" --confirmed "$confirmed"
+          }
+          asked=0
+          confirmed=0
+          ready=0
+          deadline=$((SECONDS + 95 * 60))
+          while (( SECONDS < deadline )); do
+            if ! action=$(poll); then
+              echo "::error::${src} did not publish for ${GITHUB_SHA}."
+              exit 1
+            fi
+            case "$action" in
+              pull) ready=1; break ;;
+              confirm) confirmed=1 ;;
+              dispatch)
                 curl -fsS -o /dev/null -X POST \
                   -H "Authorization: Bearer ${GH_TOKEN}" \
                   -H "Accept: application/vnd.github+json" \
@@ -225,21 +230,15 @@ jobs:
                   "${api}/dispatches" \
                   -d '{"ref":"main"}'
                 asked=1
-                saw=0
-              elif (( saw == 1 )); then
-                sleep 15
-                published && break
-                echo "::error::${src} is unpublished."
-                echo "images.yml on main did not push the solver image."
-                exit 1
-              fi
-              sleep 20
-            done
-            if ! published; then
-              echo "::error::${src} is unpublished."
-              echo "images.yml on main did not push the solver image."
-              exit 1
-            fi
+                ;;
+              wait) ;;
+              *) echo "::error::Unexpected image action ${action}." ; exit 1 ;;
+            esac
+            sleep 20
+          done
+          if [[ "$ready" != "1" ]]; then
+            echo "::error::${src} was not current before the wait expired."
+            exit 1
           fi
           docker pull "$src"
           ref="${src%%:*}"
