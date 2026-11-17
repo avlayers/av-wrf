@@ -1,6 +1,6 @@
 """Canonical 22-field wrf-zarr-v3 specification, coordinates, and admission bounds.
 
-Assumptions & Provenance Declarations (required by windy-av-layer methods.ts):
+Assumptions & Provenance Declarations (required by av-layers methods.ts):
 - `MOISTURE_SOURCE_OF_TRUTH = "spfh_kgkg"`: model-level RH is omitted because consumer
   `native-fields.ts` derives dewpoint directly from `(spfhKgKg, pressureHpa)`.
 - `LOW_CLOUD_DEFINITION`: terrain-following sigma `p >= 0.8 * PSFC` (ECMWF LCC convention) so

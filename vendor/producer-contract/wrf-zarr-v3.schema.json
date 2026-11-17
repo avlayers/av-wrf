@@ -2,7 +2,7 @@
   "schemaId": "wrf-zarr-v3",
   "schemaVersion": 1,
   "status": "provisional-phase-1",
-  "targetConsumerOwner": "windy-av-layer/packages/contracts/schemas/wrf-zarr-v3.schema.json",
+  "targetConsumerOwner": "av-layers/packages/contracts/schemas/wrf-zarr-v3.schema.json",
   "zarrFormat": 3,
   "verticalCoordinate": "model-levels",
   "moistureSourceOfTruth": "spfh_kgkg",

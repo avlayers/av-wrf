@@ -1,8 +1,8 @@
 """Pure lead-hour selection, UTC/partition parsing, local deadline SLA, and cycle-window math.
 
 References:
-- Consumer horizon & lead rules: windy-av-layer/packages/contracts/src/products.ts
-- Consumer cycle-age admission: windy-av-layer/apps/batch/src/publication.ts
+- Consumer horizon & lead rules: av-layers/packages/contracts/src/products.ts
+- Consumer cycle-age admission: av-layers/apps/batch/src/publication.ts
 """
 
 from __future__ import annotations

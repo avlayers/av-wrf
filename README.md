@@ -1,7 +1,7 @@
 # `av-wrf`
 
 Regional `WRF-ARW` producer writing immutable native model-level Zarr v3 forecasts
-and ready/diagnostic receipts for `windy-av-layer`.
+and ready/diagnostic receipts for `av-layers`.
 
 Use Python 3.12 and run from the repository root:
 
@@ -17,7 +17,7 @@ uv run verify
 and output profiles into `run.lock.json`. The [runner](src/av_wrf/runner/README.md)
 acquires forcing, executes the solver, stages frames, and publishes complete
 horizons to local or S3-compatible storage. Parcel physics, subgrid terrain,
-sample packs, and tiles belong to `windy-av-layer`.
+sample packs, and tiles belong to `av-layers`.
 
 - [Architecture](docs/architecture.md): package map, import DAG, and invariants.
 - [Science](docs/science.md): physical conventions and qualification limits.

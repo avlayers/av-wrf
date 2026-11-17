@@ -2,17 +2,17 @@
 
 `av-wrf` owns numerical weather integration (`WPS` + `WRF-ARW`) and deterministic
 post-processing into [`wrf-zarr-v3`](../vendor/producer-contract/wrf-zarr-v3.schema.json).
-Downstream `windy-av-layer` (`@av/thermodynamics`, `@av/soaring`, `@av/forecast`)
+Downstream `av-layers` (`@av/thermodynamics`, `@av/soaring`, `@av/forecast`)
 owns dry-parcel ascent (`dry-lenschow-1p2-model-levels-v2`), Deardorff $w_*$,
 Lenschow & Stephens (1980) updraft profiles, Copernicus GLO-90 subgrid terrain
 columns, sample packs, and tiles. The producer/consumer conventions follow.
 
 ## 1. Physical Constants: WRF Inversion vs. Consumer Parcel Evaluation
 
-`av-wrf` and `windy-av-layer` deliberately use two distinct constant sets on
+`av-wrf` and `av-layers` deliberately use two distinct constant sets on
 their respective sides of the Zarr v3 contract:
 
-| Quantity | `av-wrf` (`core/thermo.py`, WRF internal) | `windy-av-layer` (`@av/thermodynamics`) | Reason for Split |
+| Quantity | `av-wrf` (`core/thermo.py`, WRF internal) | `av-layers` (`@av/thermodynamics`) | Reason for Split |
 | :--- | :--- | :--- | :--- |
 | $T_0$ ($\text{K}$, pert. offset) | `300.0` (`t0` in [`module_model_constants.F`](https://github.com/wrf-model/WRF/blob/v4.8.0/share/module_model_constants.F)) | — | WRF `T = \theta - 300` is fixed at `300 K` regardless of namelist `base_temp` |
 | $R_d$ ($\text{J kg}^{-1}\text{ K}^{-1}$) | `287.0` ([`module_model_constants.F`](https://github.com/wrf-model/WRF/blob/v4.8.0/share/module_model_constants.F)) | `287.05` (WMO) | Exact inversion of WRF `T` / `THM` without upper-air drift |
@@ -26,11 +26,11 @@ their respective sides of the Zarr v3 contract:
   geopotential at the surface face as $\text{PHB}(k_w = 0) = 9.81 \cdot \text{HGT}$.
   Dividing by `9.80665` over a `4,100 m` massif would introduce a `+1.40 m`
   ground-datum offset relative to `terrain_m` (`HGT`), distorting near-surface
-  `heightM - terrainM` AGL differences in `windy-av-layer`.
+  `heightM - terrainM` AGL differences in `av-layers`.
 - **Vertical geoid datum (`EGM96` vs. `EGM2008`):** Stock WPS `topo_gmted2010_30s`
   (`dem_source: default`, [USGS OFR 2011-1073](https://pubs.usgs.gov/of/2011/1073/pdf/of2011-1073.pdf))
   uses `EGM96` with regional exceptions, whereas `Copernicus DEM DGED 2023_1 GLO-30`
-  and `windy-av-layer` (`Copernicus GLO-90`) use `EGM2008`. `ReadyReceipt.grid`
+  and `av-layers` (`Copernicus GLO-90`) use `EGM2008`. `ReadyReceipt.grid`
   records `demSource` and `landuseSource` explicitly; internal WRF AGL heights
   `(PH + PHB)/9.81 - HGT` remain datum-consistent within WRF, and switching
   `dem_source` to Copernicus `GLO-30` in Phase 5 unifies both sides on `EGM2008`.
@@ -53,7 +53,7 @@ their respective sides of the Zarr v3 contract:
    in §3 is a separate quantity.
    [WRF output definitions](https://www2.mmm.ucar.edu/wrf/site/documentation/users_guide/output.html),
    [pinned equation of state](https://github.com/wrf-model/WRF/blob/06d4240ae989cc3e50af412bb472df3d9048783c/dyn_em/module_big_step_utilities_em.F#L1056-L1075).
-   Model-level `rhPercent` is intentionally omitted because `windy-av-layer`
+   Model-level `rhPercent` is intentionally omitted because `av-layers`
    (`packages/forecast/src/native-fields.ts`) computes dewpoint directly from
    `spfhKgKg` and `pressurePa`, matching `ICON-EU` and `RRFS`.
 3. **2 m Bolton liquid-saturation guard (`clamp_spfh_2m_vec`):** The selected
@@ -85,7 +85,7 @@ their respective sides of the Zarr v3 contract:
    across `terrain_elevations_m`. The reference column uses WRF's default 200 K
    isothermal floor. `solve` verifies `ZNW` and checks initialized column geometry
    immediately after `real.exe`. `post` and `publish` enforce column pressure order.
-2. **Lowest mass midpoint vs. consumer `minimumLevelAglM = 20 m`:** `windy-av-layer`
+2. **Lowest mass midpoint vs. consumer `minimumLevelAglM = 20 m`:** `av-layers`
    (`NATIVE_DIAGNOSTIC_PARAMETERS.minimumLevelAglM = 20`) discards any model level
    at or below `20.0 m` AGL. Shipped domain profiles use `dzbot_m = 50.0` (placing
    level 0 at `~25.3 m` AGL in valleys and `~21.9 m` AGL even over `5,137 m` Mount
@@ -95,7 +95,7 @@ their respective sides of the Zarr v3 contract:
    to 1.09 raised the minimum count from 17 to 19 and lowered the minimum column
    top from 6.43 km to 4.98 km AGL.
 3. **Summer thermal-expansion headroom (`max_dz_m <= 900 m` vs. `1,000 m`):**
-   `windy-av-layer` (`packages/soaring/src/column.ts:159`) rejects an **entire
+   `av-layers` (`packages/soaring/src/column.ts:159`) rejects an **entire
    column as `unavailable`** if any adjacent level gap exceeds `maximumProfileGapM = 1,000 m`.
    `vertical.py` enforces `max_dz_m <= 900 m` (`850 m` in shipped domain profiles),
    and `post.py` verifies actual exported `height_msl_m - terrain_m` gaps.
@@ -147,7 +147,7 @@ their respective sides of the Zarr v3 contract:
 
 - **Surface parcel excess (`T2` vs. RASP fixed $\Delta T$):** The selected MYNN
   surface layer (`sf_sfclay_physics = 5`) diagnoses `T2`.
-  `windy-av-layer` owns the parcel choice `parcelSurfaceDeltaTC = 0 K`;
+  `av-layers` owns the parcel choice `parcelSurfaceDeltaTC = 0 K`;
   its suitability requires observation scoring.
 - **Topographic radiation (`slope_rad = 1`, `topo_shading = 1`) vs. RASP `sfcsun`:**
   3 km slope aspect and `25 km` cast shadows enter Noah-MP's surface energy budget
