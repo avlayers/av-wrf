@@ -26,6 +26,10 @@ uv run av-wrf check
   availability. The scheduled run uses the primary source.
 - `profiles/outputs/*.yaml`: lead hours, interval transitions, and the fixed
   Zarr v3 shard settings required by the wire schema.
+- [`operations/forecasts.yaml`](operations/forecasts.yaml): unattended allowlist.
+  Each run owns its `schedule_cron_utc`, consumer repository, model, and
+  environment. A new cron also needs one entry in the forecast workflow,
+  because GitHub schedules are static.
 
 Unknown keys, templating syntax, and environment interpolation are rejected at
 parse time, and `scripts/check_repo.py` rejects any

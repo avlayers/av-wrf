@@ -1,0 +1,15 @@
+# Unattended runs. Workflows load this file; they do not name products.
+runs:
+  - product_id: wrf-armenia-3km
+    schedule_cron_utc: "15 23 * * *"
+    estimate_minutes: 240
+    families:
+      - c8g.8xlarge
+      - c7g.8xlarge
+    vcpus: 32
+    mpi_ranks: 24
+    volume: 200gb:gp3:750mbs:4000iops
+    image_name: av-wrf-solver
+    consumer_repository: jdorrance/av-layers
+    consumer_model: av-wrf
+    consumer_environment: production
