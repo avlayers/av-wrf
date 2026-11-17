@@ -183,6 +183,7 @@ class TestForecastSelect(unittest.TestCase):
         self.assertIn("image=ubuntu24-full-arm64", job.solver_label)
         self.assertIn("extras=s3-cache+ecr-cache", job.solver_label)
         self.assertIn("+".join(self.target.families), job.solver_label)
+        self.assertEqual(job.volume, self.target.volume)
         self.assertEqual(job.timeout_minutes, timeout_minutes(self.target.estimate_minutes))
 
     def test_manifest_rejects_a_short_restore(self) -> None:
@@ -221,6 +222,8 @@ class TestForecastSelect(unittest.TestCase):
         self.assertIn("group: forecast", text)
         self.assertLess(text.index("runs-on/action@"), text.index("actions/cache"))
         self.assertIn("extras=s3-cache+ecr-cache", text)
+        publish = text.split("\n  publish:", 1)[1].split("\n  dispatch:", 1)[0]
+        self.assertIn("volume=${{ matrix.run.volume }}", publish)
         self.assertIn("scripts.forecast_dispatch", text)
         self.assertNotIn("AV_WRF_WEBHOOK", text)
         notify = (_WORKFLOWS / "notify.yml").read_text(encoding="utf-8")
@@ -233,14 +236,12 @@ class TestForecastSelect(unittest.TestCase):
         self.assertNotIn("pull_request:", images)
         self.assertIn("if: github.ref == 'refs/heads/main'", images)
         self.assertEqual(_push_paths(images), _IMAGE_PATHS)
-        self.assertIn("cpu=8", images)
-        self.assertIn("JOBS=8", images)
+        self.assertIn("runs-on: ubuntu-24.04-arm", images)
+        self.assertIn("JOBS=4", images)
+        self.assertNotIn("runs-on/action@", images)
         self.assertNotIn("runner=2cpu-linux-arm64", images)
         self.assertIn("push: false", images)
         self.assertIn("docker push", images)
-        action_at = images.index("runs-on/action@")
-        buildx_at = images.index("docker/setup-buildx-action@")
-        self.assertLess(action_at, buildx_at)
 
     def test_pending_filters_a_durable_receipt(self) -> None:
         job = self._select("schedule", self.trigger, cron=self.cron)

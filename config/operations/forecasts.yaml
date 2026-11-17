@@ -43,7 +43,9 @@ runs:
       - r8g.8xlarge
     vcpus: 32
     mpi_ranks: 24
-    volume: 200gb:gp3:750mbs:4000iops
+    # Restore holds the wrfout archive and the extracted bundle together.
+    # The solved bundle peaked near 150 GiB.
+    volume: 400gb:gp3:750mbs:4000iops
     spot: true
     image_name: av-wrf-solver
     consumer_repository: avlayers/av-layers

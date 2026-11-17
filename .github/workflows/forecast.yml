@@ -141,7 +141,7 @@ jobs:
           pending=$(uv run python -m scripts.forecast_select pending --runs "$RUNS")
           count=$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$pending")
           if [[ "$count" == "0" ]]; then
-            pending='[{"skip":"1","solver_label":"ubuntu-latest","timeout_minutes":10,"product_id":"skip","cycle_iso":"1970-01-01T00:00:00Z","attempt":"skip","cycle_partition":"19700101/00","mpi_ranks":1,"native_timeout_s":60,"inputs_cache_key":"skip","wrfout_cache_key":"skip","geog_cache_key":"skip"}]'
+            pending='[{"skip":"1","solver_label":"ubuntu-latest","timeout_minutes":10,"product_id":"skip","cycle_iso":"1970-01-01T00:00:00Z","attempt":"skip","cycle_partition":"19700101/00","mpi_ranks":1,"native_timeout_s":60,"inputs_cache_key":"skip","wrfout_cache_key":"skip","geog_cache_key":"skip","volume":"40gb"}]'
           fi
           {
             echo "pending<<EOF"
@@ -424,7 +424,7 @@ jobs:
       && needs.gate.outputs.count != '0'
     environment: forecast
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/ram=8/volume=80gb:gp3/spot=true/image=ubuntu24-full-arm64/extras=s3-cache+ecr-cache
+      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/ram=8/volume=${{ matrix.run.volume }}/spot=true/image=ubuntu24-full-arm64/extras=s3-cache+ecr-cache
     timeout-minutes: 30
     defaults:
       run:

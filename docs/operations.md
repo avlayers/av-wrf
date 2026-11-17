@@ -17,10 +17,11 @@ emits the runs for the triggering cron or the dispatch input. `gate` uses the
 false`, so a second dispatch waits and then sees that receipt. Mirror, prepare,
 solve, and publish run only when something is still unpublished.
 
-Prepare and publish stay on 2 vCPU spot runners. Each run sets `spot` on
-its solver label. A spot interruption fails the job; the next attempt
-downloads again. There is no
-in-job sleep. The heavy runner is not requested until prepare succeeds.
+Prepare and publish stay on 2 vCPU spot runners. Publish uses the operation
+`volume`. Cache restore keeps the wrfout archive and the extracted bundle on
+disk together. Each run sets `spot` on its solver label. A spot interruption
+fails the job; the next attempt downloads again. There is no in-job sleep.
+The heavy runner is not requested until prepare succeeds.
 
 The solver label lists the 32-vCPU EBS `8xlarge` types `c8g`, `c7g`, `m7g`,
 `c9g`, `m8g`, `m9g`, `r7g`, and `r8g`, with `cpu=32` and
@@ -44,7 +45,7 @@ The stack also needs `EnableEphemeralRegistry`
 (`enable_ecr = true`). Mirror records the GHCR `sha256` digest and later jobs
 pass that exact value as `AV_WRF_OCI_DIGEST`. When that tag is absent, mirror
 starts the images workflow on main when no images run is active, then waits
-for the push before the pull. Main builds that image on an 8 vCPU runner when
+for the push before the pull. Main builds that image on the free `ubuntu-24.04-arm` runner when
 an image input changes. A pull request does not compile it.
 
 The consumer event is `repository_dispatch` type `upstream-cycle-ready` with
