@@ -98,6 +98,8 @@ class TestForecastSelect(unittest.TestCase):
             cycle=on_time.cycle_iso,
         )
         self.assertEqual(explicit.cycle_iso, on_time.cycle_iso)
+        on_demand = self._select("dispatch", explicit_at, product_id=self.target.product_id)
+        self.assertEqual(on_demand.cycle_iso, on_time.cycle_iso)
 
     def test_each_operation_owns_its_schedule(self) -> None:
         other = "0 0 * * *"
@@ -166,6 +168,7 @@ class TestForecastSelect(unittest.TestCase):
         self.assertEqual(_crons(forecast), enabled)
         self.assertFalse((_WORKFLOWS / "daily-forecast.yml").exists())
         self.assertIn("cancel-in-progress: false", text)
+        self.assertIn("workflow_dispatch:", text)
         self.assertIn("group: forecast", text)
         self.assertLess(text.index("runs-on/action@"), text.index("actions/cache"))
         self.assertIn("extras=s3-cache+ecr-cache", text)

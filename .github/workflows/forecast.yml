@@ -2,6 +2,7 @@ name: forecast
 
 # Lists each distinct schedule_cron_utc from config/operations/forecasts.yaml.
 # GitHub schedules are static, so a new operation cron needs one entry here.
+# workflow_dispatch runs one allowlisted operation on demand from main.
 # runs-on/action must stay the first step of
 # every runs-on job; extras replaces the whole list, so labels that need both
 # caches say extras=s3-cache+ecr-cache.

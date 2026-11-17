@@ -76,10 +76,11 @@ cache payload.
 
 ## Manual runs
 
-`workflow_dispatch` requires a product id from the allowlist. An empty cycle
-uses the same snap and 3 hour lateness guard as the schedule. An explicit cycle
-skips that guard and must still be live. The default attempt is `att-01`.
-An empty consumer environment uses the allowlist; `staging` or `production`
-overrides it. Schedule events more than 3 hours after their cron instant fail
-before any download. [`notify.yml`](../.github/workflows/notify.yml) sends the
-same consumer event for a cycle that is already published.
+`workflow_dispatch` runs one allowlisted operation from the default branch.
+An empty cycle snaps to that operation's latest live origin. The 3 hour
+lateness guard applies to schedule events: a schedule more than 3 hours after
+its cron fails before any download. An explicit cycle must still be live. The
+default attempt is `att-01`. An empty consumer environment uses the allowlist;
+`staging` or `production` overrides it. A cycle that already has `_ready.json`
+skips compute and sends the consumer event.
+[`notify.yml`](../.github/workflows/notify.yml) sends that event by itself.

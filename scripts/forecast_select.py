@@ -56,7 +56,7 @@ def select_runs(
             run_id=run_id.strip(),
             cycle=cycle.strip(),
             attempt=_attempt(attempt),
-            enforce_lateness=mode == "schedule" or not cycle.strip(),
+            enforce_lateness=mode == "schedule",
         )
         for target in chosen
     )
