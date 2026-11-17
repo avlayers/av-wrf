@@ -95,6 +95,35 @@ def _groomed_order_message(
     )
 
 
+def _quantum17(values: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Return the 17-bit quantum 2^(exponent-17) for each positive float32 value."""
+    grid = np.ascontiguousarray(values, dtype=np.float32)
+    # Float32 stores a bias-127 exponent. Keeping 17 mantissa bits leaves 2^(e-17).
+    exp = ((grid.view(np.uint32) >> np.uint32(23)) & np.uint32(0xFF)).astype(np.int32)
+    return np.ldexp(np.float32(1.0), exp - 144).astype(np.float32)
+
+
+def _step_below(groomed: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Return the next lower 17-bit value, using the bin below an exact power of two."""
+    grid = np.ascontiguousarray(groomed, dtype=np.float32)
+    at_pow2 = (grid.view(np.uint32) & np.uint32(0x7FFFFF)) == np.uint32(0)
+    quantum = _quantum17(grid)
+    step = np.where(at_pow2, quantum * np.float32(0.5), quantum)
+    return grid - step.astype(np.float32)
+
+
+def _repair_groomed_crossing(
+    upper: npt.NDArray[np.float32], lower: npt.NDArray[np.float32]
+) -> None:
+    """Move a one-quantum tie or cross onto the greatest 17-bit value below `lower`."""
+    crossed = upper >= lower
+    if not bool(np.any(crossed)):
+        return
+    excess = np.subtract(upper, lower, dtype=np.float64)
+    soft = crossed & (excess <= _quantum17(np.maximum(upper, lower)))
+    np.copyto(upper, _step_below(lower), where=soft)
+
+
 def _raise_groomed_pressure_order(
     raw: RawWrfStepInput,
     p_gr: npt.NDArray[np.float32],
@@ -157,6 +186,12 @@ def _validate_and_groom_3d_pressure(
         raise ValueError("Non-monotonic 3D column pressure (pressure must decrease with height)")
     p_buf = groom_f32_buf(p_pa[:k_exp], 17)
     p_gr = np.frombuffer(p_buf, dtype=np.float32).reshape(k_exp, ny, nx)
+    # Grooming moves each value by at most half a quantum, and WRF diagnoses PSFC
+    # separately from the lowest mass level. A larger gap remains a real inversion.
+    surface = np.asarray(psfc_2d, dtype=np.float32)
+    _repair_groomed_crossing(p_gr[0], surface)
+    for level in range(1, k_exp):
+        _repair_groomed_crossing(p_gr[level], p_gr[level - 1])
     _raise_groomed_pressure_order(raw, p_gr, psfc_2d, trim, lead_h)
     return p_pa, p_buf
 

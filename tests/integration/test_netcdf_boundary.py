@@ -179,11 +179,11 @@ class TestRealNetcdfBoundary(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, f"{name} outside consumer bounds"):
                     post_frame(base, raw, dom, sci)
                 field_slab.buf[idx] = valid
-            raw.psfc_pa.buf[idx] = float(
-                np.nextafter(np.float32(raw.pb_pa.buf[idx]), np.float32(np.inf))
-            )
-            with self.assertRaisesRegex(ValueError, "Bit-groomed 3D column pressure"):
-                post_frame(base, raw, dom, sci)
+            raw.psfc_pa.buf[idx] = float(np.nextafter(np.float32(raw.pb_pa.buf[idx]), np.inf))
+            frame, _ = post_frame(base, raw, dom, sci)
+            p0 = float(np.frombuffer(frame.fields_3d["pressure_pa"].buf, np.float32)[0])
+            ps = float(np.frombuffer(frame.fields_2d["surface_pressure_pa"].buf, np.float32)[0])
+            self.assertLess(p0, ps)
 
     def test_southern_lambert_rotation_sign_across_antimeridian(self) -> None:
         dom, sci = _small_domain_and_science()
