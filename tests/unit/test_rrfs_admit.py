@@ -123,12 +123,13 @@ def test_product_is_one_domain_and_requests_thirty_one_hours() -> None:
     assert bundle.product.enforce_local_deadline is False
     assert hours == tuple(range(31))
     assert not nesting_active(bundle.domain, bundle.primary_source.grid_spacing_deg)
-    manual = next(
+    run = next(
         item
         for item in load_targets(_ROOT / "config/operations/forecasts.yaml")
         if item.product_id == bundle.product.product_id
     )
-    assert manual.scheduled is False
+    assert run.scheduled is True
+    assert run.notify is False
     RRFS.check_window(bundle.primary_source, bundle.domain, _CYCLE, hours)
     text = RRFS.vtable_text or ""
     assert " | 102 | 0 | | PMSL | Pa | MSLET | 0 | 3 | 192 | 101 |" in text

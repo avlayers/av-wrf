@@ -26,7 +26,7 @@ runs:
     consumer_environment: production
   - product_id: wrf-va-1km
     schedule_cron_utc: "00 10 * * *"
-    scheduled: false
+    scheduled: true
     # The consumer has no model for this run. Leave the event unsent so the
     # receipt can be delivered later, after that model is registered.
     notify: false

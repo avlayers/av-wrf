@@ -2,7 +2,7 @@
 # forcing hours f000 through f030. The 08:30 deadline is advisory: enforcing it
 # would leave too little time after the 10:00Z start. The candidate is the same
 # source because a quarter-degree source cannot pass the 1 km nest gate.
-# The 10:00Z cron snaps an empty manual cycle. It is not a GitHub schedule.
+# The 10:00Z cron is the GitHub schedule and snaps the live 12Z origin.
 product_id: wrf-va-1km
 model_id: wrf-va-1km
 label: WRF northern Virginia 1 km (RRFS)
