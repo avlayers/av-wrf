@@ -28,6 +28,8 @@ from av_wrf.core.grid import (
 from av_wrf.core.thermo import (
     G0_MPS2,
     MIN_WATER_VAPOR_KGKG,
+    R_DRY_J_KG_K,
+    WRF_T0_K,
     afwa_mslp_vec,
     geometric_w_to_omega_vec,
     groom_f32_buf,
@@ -123,10 +125,13 @@ def _raise_hard_groomed_gap(
     trim: int,
     lead_h: int | None,
     comparison: str,
+    limit: npt.NDArray[np.float32] | None = None,
 ) -> None:
-    """Reject a groomed cross larger than one 17-bit quantum of the greater value."""
+    """Reject a groomed cross larger than `limit`, or one 17-bit quantum when omitted."""
     excess = np.subtract(upper, lower, dtype=np.float64)
-    hard = (upper >= lower) & (excess > _quantum17(np.maximum(upper, lower)))
+    quantum = _quantum17(np.maximum(upper, lower))
+    bound = quantum if limit is None else np.maximum(quantum, limit)
+    hard = (upper >= lower) & (excess > bound)
     if not bool(np.any(hard)):
         return
     y, x = (int(v) for v in np.argwhere(hard)[0])
@@ -157,14 +162,16 @@ def _snap_groomed_column(
     psfc: ArrF64,
     trim: int,
     lead_h: int | None,
+    dzbot_m: float,
 ) -> None:
-    """Publish a strictly decreasing 17-bit column below PSFC.
-
-    Hard gaps use the original groomed values. The snap then walks upward, so a
-    legal surface step cannot turn the next one-quantum tie into a false fold.
-    """
+    """Snap a small PSFC disagreement, then one-quantum level ties, down the 17-bit grid."""
     surface = np.asarray(psfc, dtype=np.float32)
-    _raise_hard_groomed_gap(raw, p_gr[0], surface, 0, trim, lead_h, "lowest level >= surface")
+    # The lowest mass level sits near dzbot/2. A dry 300 K half-layer is the snap bound.
+    scale_m = R_DRY_J_KG_K * WRF_T0_K / G0_MPS2
+    slack = surface * np.float32(dzbot_m * 0.5 / scale_m)
+    _raise_hard_groomed_gap(
+        raw, p_gr[0], surface, 0, trim, lead_h, "lowest level >= surface", slack
+    )
     for level in range(1, p_gr.shape[0]):
         _raise_hard_groomed_gap(
             raw,
@@ -186,6 +193,7 @@ def _validate_and_groom_3d_pressure(
     trim: int,
     k_exp: int,
     lead_h: int | None,
+    dzbot_m: float,
 ) -> tuple[ArrF64, array[float]]:
     ny, nx = psfc_2d.shape
     shape = (raw.cldfra.nz, ny, nx)
@@ -200,7 +208,7 @@ def _validate_and_groom_3d_pressure(
         raise ValueError("Non-monotonic 3D column pressure (pressure must decrease with height)")
     p_buf = groom_f32_buf(p_pa[:k_exp], 17)
     p_gr = np.frombuffer(p_buf, dtype=np.float32).reshape(k_exp, ny, nx)
-    _snap_groomed_column(raw, p_gr, psfc_2d, trim, lead_h)
+    _snap_groomed_column(raw, p_gr, psfc_2d, trim, lead_h, dzbot_m)
     return p_pa, p_buf
 
 
@@ -242,7 +250,7 @@ def _cloud_and_thermo(
     trim, k_exp = domain.bdy_trim_cells, domain.exported_levels_k
     ny, nx = psfc.shape
     shp3 = (k_exp, ny, nx)
-    p_all, p_buf = _validate_and_groom_3d_pressure(raw, psfc, trim, k_exp, lead_h)
+    p_all, p_buf = _validate_and_groom_3d_pressure(raw, psfc, trim, k_exp, lead_h, domain.dzbot_m)
     cloud_shape = (raw.cldfra.nz, ny, nx)
     cloud = _mass_view(raw.cldfra, trim, cloud_shape)
     # Cloud fraction is bounded by definition; tolerate only float32 round-off.

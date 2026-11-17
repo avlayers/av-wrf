@@ -123,10 +123,26 @@ class TestPost3d(unittest.TestCase):
         self.assertTrue(bool(np.all(cascaded[0] < self.shared[1])))
         self.assertTrue(bool(np.all(cascaded[1:] < cascaded[:-1])))
 
+    def test_few_pascal_surface_gap_steps_below_psfc(self) -> None:
+        column = np.array([[[76_161.0]], [[75_500.0]], [[70_000.0]]], dtype=np.float32)
+        _snap_groomed_column(
+            self.raw,
+            column,
+            np.array([[76_158.0]]),
+            self.domain.bdy_trim_cells,
+            72,
+            self.domain.dzbot_m,
+        )
+        self.assertEqual(float(column[0, 0, 0]), 76_157.5)
+        self.assertTrue(bool(np.all(column[1:] < column[:-1])))
+        self.assertLess(float(column[0, 0, 0]), 76_158.0)
+
     def test_groomed_level_fold_names_the_column(self) -> None:
         folded = np.array([[[88_000.0]], [[89_000.0]]], dtype=np.float32)
         with self.assertRaisesRegex(ValueError, "level 1 >= level 0") as caught:
-            _snap_groomed_column(self.raw, folded, np.array([[90_000.0]]), 1, 3)
+            _snap_groomed_column(
+                self.raw, folded, np.array([[90_000.0]]), 1, 3, self.domain.dzbot_m
+            )
         self.assertIn("89000.000 Pa vs 88000.000 Pa, gap 1000.000 Pa", str(caught.exception))
 
     def test_pressure_validation_includes_levels_above_exported_column(self) -> None:
