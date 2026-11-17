@@ -13,8 +13,9 @@ name: forecast
 # consumer repository. The workflow GITHUB_TOKEN cannot reach that repository.
 # S3 endpoint and region come from repository variables, with a secret endpoint
 # overriding the variable. The stack needs EnableEphemeralRegistry
-# (Fleet enable_ecr = true). Do not raise the 1.5 timeout multiplier; change
-# the instance after measurement.
+# (Fleet enable_ecr = true). Mirror waits for the solver tag that images.yml
+# pushes on main, and starts that workflow when it is idle. Do not raise the
+# 1.5 timeout multiplier; change the instance after measurement.
 
 on:
   schedule:
@@ -22,9 +23,12 @@ on:
   workflow_dispatch:
     inputs:
       product_id:
-        description: Product id listed in the operations allowlist
+        description: Forecast operation from the operations allowlist
         required: true
-        type: string
+        type: choice
+        options:
+          - wrf-armenia-3km
+        default: wrf-armenia-3km
       cycle:
         description: Optional publish origin; empty uses the scheduled snap
         required: false
@@ -152,10 +156,12 @@ jobs:
       && needs.gate.outputs.count != '0'
     runs-on: >-
       runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/volume=40gb/spot=true/image=ubuntu24-full-arm64/extras=ecr-cache
-    timeout-minutes: 25
+    # The tag wait covers an images.yml build (90 minutes) plus the ECR push.
+    timeout-minutes: 110
     permissions:
       contents: read
       packages: read
+      actions: write
     outputs:
       digest: ${{ steps.mirror.outputs.digest }}
       ecr_image: ${{ steps.mirror.outputs.ecr_image }}
@@ -172,6 +178,7 @@ jobs:
       - id: mirror
         env:
           IMAGE_NAME: ${{ needs.resolve.outputs.image_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ -z "${RUNS_ON_ECR_CACHE:-}" ]]; then
@@ -180,6 +187,60 @@ jobs:
           fi
           owner=${GITHUB_REPOSITORY_OWNER,,}
           src="ghcr.io/${owner}/${IMAGE_NAME}:main"
+          repo="${GITHUB_REPOSITORY}"
+          api="https://api.github.com/repos/${repo}"
+          api="${api}/actions/workflows/images.yml"
+          # :main appears only after images.yml pushes. Wait for that build
+          # so the pull reads a published tag.
+          published() { docker manifest inspect "$src" >/dev/null 2>&1; }
+          active_images() {
+            local py
+            py='import json,sys; d=json.load(sys.stdin)'
+            py="${py}; n=sum(r[\"status\"]!=\"completed\""
+            py="${py} for r in d[\"workflow_runs\"]); print(n)"
+            curl -fsS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${api}/runs?branch=main&per_page=20" \
+              | python3 -c "$py"
+          }
+          if ! published; then
+            saw=0
+            asked=0
+            deadline=$((SECONDS + 95 * 60))
+            while (( SECONDS < deadline )); do
+              if published; then
+                break
+              fi
+              active=$(active_images)
+              if (( active > 0 )); then
+                saw=1
+              elif (( asked == 0 )); then
+                curl -fsS -o /dev/null -X POST \
+                  -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  -H "Content-Type: application/json" \
+                  "${api}/dispatches" \
+                  -d '{"ref":"main"}'
+                asked=1
+                saw=0
+              elif (( saw == 1 )); then
+                sleep 15
+                published && break
+                echo "::error::${src} is unpublished."
+                echo "images.yml on main did not push the solver image."
+                exit 1
+              fi
+              sleep 20
+            done
+            if ! published; then
+              echo "::error::${src} is unpublished."
+              echo "images.yml on main did not push the solver image."
+              exit 1
+            fi
+          fi
           docker pull "$src"
           ref="${src%%:*}"
           digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$src" \

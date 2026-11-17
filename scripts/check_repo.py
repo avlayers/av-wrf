@@ -109,6 +109,32 @@ def _configured_region_tokens(repo: Path) -> set[str]:
     return tokens
 
 
+def _allowlisted_product_ids(repo: Path) -> set[str]:
+    """Return operation product ids. The manual menu must repeat them verbatim."""
+    path = repo / "config" / "operations" / "forecasts.yaml"
+    if not path.is_file():
+        return set()
+    found: set[str] = set()
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        text = raw_line.split("#", 1)[0].strip()
+        if text.startswith("- "):
+            text = text[2:].strip()
+        key, sep, val = text.partition(":")
+        if sep and key.strip() == "product_id":
+            product_id = val.strip().strip("\"'")
+            if product_id:
+                found.add(product_id)
+    return found
+
+
+def _workflow_choice_line(line: str, product_ids: set[str]) -> bool:
+    """GitHub renders workflow_dispatch choices from the workflow file itself."""
+    stripped = line.strip()
+    return any(
+        stripped in {f"- {product_id}", f"default: {product_id}"} for product_id in product_ids
+    )
+
+
 def _check_no_hardcoded_regions(repo: Path, errors: list[str]) -> None:
     region_tokens = _configured_region_tokens(repo)
     if not region_tokens:
@@ -116,6 +142,7 @@ def _check_no_hardcoded_regions(repo: Path, errors: list[str]) -> None:
     ordered = [re.escape(t) for t in sorted(region_tokens, key=len, reverse=True)]
     word_pat = re.compile(r"\b(" + "|".join(ordered) + r")\b", re.IGNORECASE)
     exempt = {"docs/reference.md", "THIRD_PARTY_NOTICES.txt"}
+    product_ids = _allowlisted_product_ids(repo)
     for path in sorted(repo.rglob("*")):
         if not path.is_file() or any(p in IGNORED_NAMES for p in path.relative_to(repo).parts):
             continue
@@ -127,6 +154,8 @@ def _check_no_hardcoded_regions(repo: Path, errors: list[str]) -> None:
         except UnicodeDecodeError:
             continue
         for lineno, line in enumerate(lines, start=1):
+            if rel == ".github/workflows/forecast.yml" and _workflow_choice_line(line, product_ids):
+                continue
             m = word_pat.search(line)
             if m:
                 errors.append(
