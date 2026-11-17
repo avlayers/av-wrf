@@ -6,8 +6,8 @@ import dataclasses
 
 from av_wrf.contracts import DomainProfile, ScienceProfile
 
-# Conservative meters per degree at the equator; the meridional spacing of every supported
-# source (GFS 0.25 deg, IFS 0.1 deg, ICON-EU 0.0625 deg) is at or below this bound.
+# Conservative meters per degree at the equator. GFS 0.25, IFS 0.1, and ICON-EU 0.0625
+# are geographic. RRFS uses 0.027 as the equatorial-metre equivalent of its 3 km Lambert grid.
 M_PER_DEG_EQUATORIAL = 111_320.0
 
 

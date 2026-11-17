@@ -149,16 +149,15 @@ class TestForcingManifest(TestCase):
                 "av_wrf.runner.bundle.compile_wrf_namelist_sections",
                 wraps=compile_wrf_namelist_sections,
             ) as compile_sections:
-                validate_bundle(bundle, publish_origin_utc="20261112/00")
+                origin = f"20261112/{bundle.product.publish_origin_hour_utc:02d}"
+                validate_bundle(bundle, publish_origin_utc=origin)
                 compile_sections.assert_called_once_with(
                     bundle.domain, bundle.science, bundle.primary_source
                 )
             if nested:
                 broken = replace(bundle.domain, parent_halo_cells=0)
                 with self.assertRaisesRegex(ValueError, "parent_domain_shape"):
-                    validate_bundle(
-                        replace(bundle, domain=broken), publish_origin_utc="20261112/00"
-                    )
+                    validate_bundle(replace(bundle, domain=broken), publish_origin_utc=origin)
         self.assertEqual(seen, {False, True})
 
     def test_prep_lists_source_files_and_gfs_rejects_missing_hourly_tail(self) -> None:

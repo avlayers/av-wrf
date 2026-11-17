@@ -1,0 +1,16 @@
+# NOAA RRFS CONUS 3 km GRIB2. grid_spacing_deg is the equatorial-metre equivalent
+# of the 3000 m Lambert spacing, used only by the nest gate. The recipe reads
+# prslev and 2dfld and does not ingest hybrid-level output.
+profile_id: noaa-rrfs-conus-3km-v1
+provider: NOAA
+vtable_name: Vtable.RRFS
+interval_seconds: 3600
+grid_spacing_deg: 0.027
+metgrid_levels: 46
+metgrid_soil_levels: 9
+use_sh_qv: true
+# Operational files are typically present within this lag. Confirm before an allowlist entry.
+source_ready_lag_p95_hours: 3.5
+mirrors:
+  - https://noaa-rrfs-ops-pds.s3.amazonaws.com
+fail_closed: true

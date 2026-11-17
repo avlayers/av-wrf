@@ -3,7 +3,7 @@
 import json
 import math
 import subprocess
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 
@@ -110,9 +110,15 @@ def checked_grib_grid(
     bounds: tuple[float, float, float, float],
     spacing: float,
     packings: tuple[str, ...],
+    cover: Callable[[Mapping[str, object], tuple[float, float, float, float]], None] | None = None,
 ) -> Iterator[dict[str, object]]:
     """Yield messages on one covered grid with contiguous, WPS-readable framing."""
-    _validate_latlon_coverage(rows[0], bounds, spacing)
+    if not rows:
+        raise ValueError(f"No readable GRIB2 messages in {path}")
+    if cover is None:
+        _validate_latlon_coverage(rows[0], bounds, spacing)
+    else:
+        cover(rows[0], bounds)
     grid = rows[0].get("md5Section3")
     points = grib_number(rows[0], "Ni") * grib_number(rows[0], "Nj")
     offset = 0

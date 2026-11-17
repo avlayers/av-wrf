@@ -12,10 +12,12 @@ from av_wrf.runner.bundle import LoadedBundle
 from av_wrf.runner.forcing_gfs import GFS
 from av_wrf.runner.forcing_icon import ICON_EU
 from av_wrf.runner.forcing_ifs import IFS
+from av_wrf.runner.forcing_rrfs import RRFS
 from av_wrf.runner.gfs_acquire import _acquire
 from av_wrf.runner.icon_acquire import _assemble, _icon_plan
 from av_wrf.runner.ifs_acquire import acquire_ifs
 from av_wrf.runner.mirrors import forcing_subset, write_forcing_manifest
+from av_wrf.runner.rrfs_acquire import acquire_rrfs
 
 
 def acquire_forcing(
@@ -62,6 +64,10 @@ def acquire_forcing(
         with httpx.Client(timeout=120) as client:
             files = acquire_ifs(client, bundle, cycle, plan, destination)
         prefix = f"ifs.{cycle:%Y%m%d%H}"
+    elif recipe is RRFS:
+        with httpx.Client(timeout=120) as client:
+            files = acquire_rrfs(client, bundle, cycle, plan, destination)
+        prefix = f"rrfs.{cycle:%Y%m%d%H}"
     else:
         raise ValueError("No acquisition implementation for the locked source")
     inventory = destination / f"{prefix}.sources-f{max(files):03d}.json"

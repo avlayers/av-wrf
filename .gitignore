@@ -28,6 +28,8 @@ scratch/
 *.grib*
 *.grb*
 *.idx
+# Captured byte-index oracles live under tests/fixtures and are not run artifacts.
+!tests/fixtures/**/*.idx
 wrfout_*
 wrfrst_*
 wrfinput_*

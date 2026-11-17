@@ -262,6 +262,7 @@ class TestSolverCompletion(TestCase):
                     ds.createDimension("num_sm_layers", 4)
                     ds.setncattr("NUM_METGRID_SOIL_LEVELS", 4)
                     ds.setncattr("FLAG_LAKE_DEPTH", 1)
+                    ds.setncattr("FLAG_SLP", 1)
                     times = ds.createVariable("Times", "S1", ("Time", "DateStrLen"))
                     times[0] = np.frombuffer(stamp.encode("ascii"), dtype="S1")
                     for field in {*GFS.metgrid_fields, "LAKE_DEPTH"}:

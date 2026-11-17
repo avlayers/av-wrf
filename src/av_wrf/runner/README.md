@@ -20,16 +20,14 @@ uv run python -m av_wrf.runner.gfs_acquire \
   --plan work/prep/forcing_subset.json --grib-dir work/grib
 uv run --extra icon python -m av_wrf.runner.icon_acquire \
   --plan work/prep/forcing_subset.json --cache work/dwd --grib-dir work/grib
+uv run python -m av_wrf.runner.rrfs_acquire \
+  --plan work/prep/forcing_subset.json --grib-dir work/grib
 ```
 
-GFS needs `grib_ls` and defaults to range requests for global fields. Use
-`acquire --gfs-regional-filter` or the standalone `--regional-filter` for the
-planned NOAA cutout. The [NOMADS filter](https://nomads.ncep.noaa.gov/info.php?page=gribfilter)
-requires at least ten seconds between automated requests.
-Stage archived inputs directly when available. Seal the complete cycle with
-`forcing-manifest --file HOUR=FILENAME`. Use `--acquisition-inventory` to bind
-the generated `*.sources-*.json` to the manifest and solver receipt. Use fresh
-directories to acquire revised bytes.
+GFS and RRFS need `grib_ls` and use range requests. The
+[NOMADS filter](https://nomads.ncep.noaa.gov/info.php?page=gribfilter) pauses
+ten seconds between requests. Seal the complete cycle with
+`forcing-manifest --file HOUR=FILENAME` and `--acquisition-inventory`.
 
 Solve validates private input copies and records native stage wall seconds in
 its receipt. Set `AV_WRF_NATIVE_TIMEOUT_S` to bound each native stage. Failed

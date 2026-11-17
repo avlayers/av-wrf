@@ -66,7 +66,7 @@ their respective sides of the Zarr v3 contract:
 4. **Initialization humidity:** `use_sh_qv` selects direct vertical interpolation
    of mixing ratio from specific-humidity inputs. Its false branch reconstructs
    mixing ratio from interpolated RH and temperature after pressure is available.
-   GFS supplies RH; the IFS and ICON recipes supply specific humidity.
+   GFS supplies RH; the IFS, ICON, and RRFS recipes supply specific humidity.
    [WRF interpolation](https://github.com/wrf-model/WRF/blob/06d4240ae989cc3e50af412bb472df3d9048783c/dyn_em/module_initialize_real.F#L1743-L1759),
    [final humidity conversion](https://github.com/wrf-model/WRF/blob/06d4240ae989cc3e50af412bb472df3d9048783c/dyn_em/module_initialize_real.F#L4113-L4144).
 
@@ -216,6 +216,10 @@ ECMWF IFS Open Data supplies roughly `14` pressure levels, emitted as
 `metgrid_levels = 15`. That column is coarse for a `55`-level hybrid
 initialization. This is inventory information, not a qualified vertical
 solution; GFS and ICON-EU are preferred when vertical structure matters.
+The CONUS RRFS GRIB2 recipe supplies 45 isobaric levels and specific humidity
+from the `prslev` and `2dfld` products. It leaves RRFS hybrid-level output on
+its own route. A 55-level WRF column does not restore structure those isobars
+omit, and the six-hour spin-up remains an experimental baseline.
 
 ### Gray-zone and steep-terrain caveats
 

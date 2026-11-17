@@ -34,6 +34,8 @@ _WPS_FIELD_FLAGS = {
     "LAKE_DEPTH": "FLAG_LAKE_DEPTH",
     "SOIL_LEVELS": "FLAG_SOIL_LEVELS",
     "SPECHUMD": "FLAG_SH",
+    # METGRID.TBL sets FLAG_SLP from PMSL. real.exe needs it when sfcp_to_sfcp is false.
+    "PMSL": "FLAG_SLP",
 }
 
 

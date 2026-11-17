@@ -34,6 +34,18 @@ def ready_with_diagnostics(store: ObjectStore, receipt: ReadyReceipt) -> ReadyRe
     return dataclasses.replace(receipt, diagnostics_sha256=sha256_hex(raw))
 
 
+def bundle_for_spacing(config: Path, spacing_deg: float) -> LoadedBundle:
+    """Load the one product whose primary source declares `spacing_deg`."""
+    matches = [
+        load_bundle(config, path.stem)
+        for path in sorted((config / "products").glob("*.yaml"))
+        if load_bundle(config, path.stem).primary_source.grid_spacing_deg == spacing_deg
+    ]
+    if len(matches) != 1:
+        raise AssertionError(f"Expected one product at grid spacing {spacing_deg}")
+    return matches[0]
+
+
 def bundle_for_recipe(config: Path, recipe: ForcingRecipe) -> LoadedBundle:
     """Load a product wired to `recipe` as a single-domain bundle for solver stubs."""
     for path in sorted((config / "products").glob("*.yaml")):
