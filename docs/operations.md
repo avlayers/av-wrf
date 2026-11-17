@@ -34,7 +34,9 @@ and `dispatch` receive it. `dispatch` runs after a successful publish, and also
 when the cycle receipt is already in the store. A failed POST can be retried.
 The stack also needs `EnableEphemeralRegistry`
 (`enable_ecr = true`). Mirror records the GHCR `sha256` digest and later jobs
-pass that exact value as `AV_WRF_OCI_DIGEST`.
+pass that exact value as `AV_WRF_OCI_DIGEST`. When that tag is absent, mirror
+starts the images workflow on main when no images run is active, then waits
+for the push before the pull.
 
 The consumer event is `repository_dispatch` type `upstream-cycle-ready` with
 `environment`, `model`, and the UTC hour. `AV_WRF_DISPATCH_TOKEN` creates that
@@ -77,6 +79,8 @@ cache payload.
 ## Manual runs
 
 `workflow_dispatch` runs one allowlisted operation from the default branch.
+The product field is a single-choice menu of every operation. Add another
+operation to the allowlist and one matching menu line.
 An empty cycle snaps to that operation's latest live origin. The 3 hour
 lateness guard applies to schedule events: a schedule more than 3 hours after
 its cron fails before any download. An explicit cycle must still be live. The

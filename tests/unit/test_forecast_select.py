@@ -41,6 +41,28 @@ _WORKFLOWS = ROOT / ".github" / "workflows"
 _CRON_RE = re.compile(r"cron:\s*['\"]([^'\"]+)['\"]")
 
 
+def _product_menu(workflow: str) -> tuple[str, tuple[str, ...]]:
+    lines = workflow.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "product_id:")
+    options: list[str] = []
+    default = ""
+    in_options = False
+    for line in lines[start + 1 :]:
+        if line.startswith("      ") and not line.startswith("        "):
+            break
+        stripped = line.strip()
+        if stripped == "options:":
+            in_options = True
+            continue
+        if in_options and stripped.startswith("- "):
+            options.append(stripped[2:].strip().strip("\"'"))
+            continue
+        in_options = False
+        if stripped.startswith("default:"):
+            default = stripped.split(":", 1)[1].strip().strip("\"'")
+    return default, tuple(options)
+
+
 def _crons(path: Path) -> set[str]:
     head = path.read_text(encoding="utf-8").split("\njobs:", 1)[0]
     return set(_CRON_RE.findall(head))
@@ -169,6 +191,18 @@ class TestForecastSelect(unittest.TestCase):
         self.assertFalse((_WORKFLOWS / "daily-forecast.yml").exists())
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("workflow_dispatch:", text)
+        default, options = _product_menu(text)
+        ids = tuple(target.product_id for target in self.targets)
+        self.assertEqual(options, ids)
+        self.assertEqual(default, ids[0])
+        mirror = text.split("\n  prepare:", 1)[0]
+        self.assertIn("docker manifest inspect", mirror)
+        self.assertLess(
+            mirror.index("docker manifest inspect"),
+            mirror.index('docker pull "$src"'),
+        )
+        self.assertIn("workflows/images.yml", mirror)
+        self.assertIn('"${api}/dispatches"', mirror)
         self.assertIn("group: forecast", text)
         self.assertLess(text.index("runs-on/action@"), text.index("actions/cache"))
         self.assertIn("extras=s3-cache+ecr-cache", text)
