@@ -31,7 +31,7 @@ Pass `geog` output to `plan` and `solve`; seal inputs with `forcing-manifest`.
 Set `AV_WRF_OCI_DIGEST` to the solver image digest for `plan` and `solve`.
 Set `AV_WRF_STORE_URI` to a mounted store. See [solver patches](patches/README.md) for provenance.
 
-The [image workflow](../.github/workflows/images.yml) builds on a 2 vCPU ARM
+The [image workflow](../.github/workflows/images.yml) builds on an 8 vCPU ARM
 runner when an image input changes on main, with separate runtime and solver
 [BuildKit caches](https://docs.docker.com/build/ci/github-actions/cache/).
 It publishes after the native checks. A pull request does not compile the image.

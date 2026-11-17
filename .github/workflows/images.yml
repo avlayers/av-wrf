@@ -1,7 +1,7 @@
 name: images
 
 # Main publishes the solver image when an input baked into it changes.
-# A pull request does not compile WRF. JOBS=2 matches the 2 vCPU runner.
+# A pull request does not compile WRF. JOBS=8 matches the 8 vCPU builder.
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
     # runs-on/action must stay the first step so Magic Cache serves type=gha.
     # Graviton defaults to x64 without image=ubuntu24-full-arm64.
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=2cpu-linux-arm64/ram=8/volume=120gb:gp3/spot=true/image=ubuntu24-full-arm64/extras=s3-cache
+      runs-on=${{ github.run_id }}/family=c8g.2xlarge+c7g.2xlarge/cpu=8/image=ubuntu24-full-arm64/volume=120gb:gp3/spot=true/extras=s3-cache
     timeout-minutes: 90
     steps:
       - uses: runs-on/action@4a3bfc79f21a9b97e972e2ba75a2b0b1e9688670 # v2.7.1
@@ -73,7 +73,7 @@ jobs:
           file: docker/Dockerfile
           target: solver
           build-args: |
-            JOBS=2
+            JOBS=8
             WRF_PORTABLE_ISA=armv8.2-a
           load: true
           push: false
