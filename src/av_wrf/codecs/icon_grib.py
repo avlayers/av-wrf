@@ -119,7 +119,6 @@ def _encode(gid: int, cutout: IconGrid, values: _FloatArray) -> bytes:
 
     if not np.isfinite(values).all():
         raise ValueError("Nonfinite values in the normalized ICON field")
-    # _slab already checked every hybrid message's six vertical coordinate values.
     for key, value in {
         "gridType": "regular_ll",
         "Ni": cutout.nx,
@@ -300,7 +299,7 @@ class IconGribCutout:
     def fields(
         self, fields: Mapping[str, Sequence[str]], hour: int, top_pa: float
     ) -> Iterator[IconField]:
-        """Yield one remapped slab at a time for a boundary hour."""
+        """Return a lazy iterator of remapped slabs for a boundary hour."""
         return (slab for _, slab in self._slabs(fields, hour, top_pa))
 
     def _slabs(
@@ -321,6 +320,7 @@ class IconGribCutout:
                     if field == "H_ICE":
                         # ICON-EU publishes ice thickness only; WPS SEAICE is cover. Each iced
                         # donor is full cover, so the same-surface remap gives the iced share.
+                        # Partly iced sea cells therefore read as full cover (no FR_ICE on v1).
                         if np.any(donors < 0.0):
                             raise ValueError("Negative ICON ice thickness")
                         donors = (donors > 0.0).astype(np.float64)

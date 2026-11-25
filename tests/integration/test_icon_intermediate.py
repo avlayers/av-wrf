@@ -205,9 +205,11 @@ def test_assemble_realistic_native_grib_and_inventory(tmp_path: Path) -> None:
     land = slabs["LANDSEA", 200100].values
     np.testing.assert_allclose(land[:, (0, 2)], [[1, 0]] * 3)
     np.testing.assert_allclose(slabs["SKINTEMP", 200100].values, np.where(land, 275, 285))
-    # Only the southern water donor is iced; land targets read land donors only.
-    np.testing.assert_allclose(slabs["SEAICE", 200100].values[:, 2], [1, 0.5, 0])
-    np.testing.assert_allclose(slabs["SEAICE", 200100].values[:, 0], 0)
+    # Only the southeast water donor is iced. Water targets read water donors only, so the
+    # mixed middle column gets full cover where plain weights would give half.
+    np.testing.assert_allclose(
+        slabs["SEAICE", 200100].values, np.array([[0, 1, 1], [0, 0, 0.5], [0, 0, 0.0]]), atol=1e-12
+    )
     for suffix in ("001", "002", "006", "018", "054", "162", "486", "999"):
         soil = slabs[f"SOILM{suffix}", 200100]
         np.testing.assert_allclose(soil.values, [[0.3, 0.3, 0.01]] * 3, rtol=1e-5)
