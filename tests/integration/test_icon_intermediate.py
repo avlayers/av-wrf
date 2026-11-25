@@ -164,7 +164,7 @@ def _native_message(key: str) -> bytes:
             "HSURF": [100] * 4,
             "HHL": [100 + (75 - level) * 200] * 4,
             "P": [1000 + level * 1200] * 4,
-            "H_ICE": [0] * 4,
+            "H_ICE": [0, 0.3, 0, 0],
             "T_G": [275, 285, 275, 285],
         }.get(name, [0.002] * 4 if name.startswith("QV") else [270] * 4)
         if name == "W_SO":
@@ -205,6 +205,9 @@ def test_assemble_realistic_native_grib_and_inventory(tmp_path: Path) -> None:
     land = slabs["LANDSEA", 200100].values
     np.testing.assert_allclose(land[:, (0, 2)], [[1, 0]] * 3)
     np.testing.assert_allclose(slabs["SKINTEMP", 200100].values, np.where(land, 275, 285))
+    # Only the southern water donor is iced; land targets read land donors only.
+    np.testing.assert_allclose(slabs["SEAICE", 200100].values[:, 2], [1, 0.5, 0])
+    np.testing.assert_allclose(slabs["SEAICE", 200100].values[:, 0], 0)
     for suffix in ("001", "002", "006", "018", "054", "162", "486", "999"):
         soil = slabs[f"SOILM{suffix}", 200100]
         np.testing.assert_allclose(soil.values, [[0.3, 0.3, 0.01]] * 3, rtol=1e-5)
