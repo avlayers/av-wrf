@@ -119,12 +119,6 @@ def _encode(gid: int, cutout: IconGrid, values: _FloatArray) -> bytes:
 
     if not np.isfinite(values).all():
         raise ValueError("Nonfinite values in the normalized ICON field")
-    # ecCodes decodes surface 150 as a six-value general vertical coordinate.
-    if (
-        ec.codes_get_long(gid, "typeOfFirstFixedSurface") == 150
-        and ec.codes_get_long(gid, "NV") != 6
-    ):
-        raise ValueError("ICON hybrid field requires six vertical coordinate values")
     for key, value in {
         "gridType": "regular_ll",
         "Ni": cutout.nx,
@@ -170,6 +164,7 @@ def _slab(gid: int, grid: IconGrid, values: _FloatArray) -> IconField:
     import eccodes as ec
 
     selector = _field(gid)
+    # ecCodes decodes surface 150 as a six-value general vertical coordinate.
     if selector[3] == 150 and ec.codes_get_long(gid, "NV") != 6:
         raise ValueError("ICON hybrid field requires six vertical coordinate values")
     if not np.isfinite(values).all():
@@ -304,9 +299,8 @@ class IconGribCutout:
     def fields(
         self, fields: Mapping[str, Sequence[str]], hour: int, top_pa: float
     ) -> Iterator[IconField]:
-        """Yield one remapped slab at a time for a boundary hour."""
-        for _, slab in self._slabs(fields, hour, top_pa):
-            yield slab
+        """Return a lazy iterator of remapped slabs for a boundary hour."""
+        return (slab for _, slab in self._slabs(fields, hour, top_pa))
 
     def _slabs(
         self, fields: Mapping[str, Sequence[str]], hour: int, top_pa: float
@@ -324,14 +318,18 @@ class IconGribCutout:
                         raise ValueError(f"Wrong ICON GRIB2 selector for {field} at f{hour:03d}")
                     donors = _values(gid, self._cutout, self._cycle, hour)
                     if field == "H_ICE":
-                        if np.any(donors != 0.0):
-                            raise ValueError("ICON cutout requires fraction for nonzero sea ice")
+                        # ICON-EU publishes ice thickness only; WPS SEAICE is cover. Each iced
+                        # donor is full cover, so the same-surface remap gives the iced share.
+                        # Partly iced sea cells therefore read as full cover (no FR_ICE on v1).
+                        if np.any(donors < 0.0):
+                            raise ValueError("Negative ICON ice thickness")
+                        donors = (donors > 0.0).astype(np.float64)
                         ec.codes_set(gid, "parameterNumber", 0)
                     weights = (
                         self._soil_weights
                         if field in {"T_SO", "W_SO"}
                         else self._surface_weights
-                        if field in {"T_G", "H_SNOW", "W_SNOW"}
+                        if field in {"T_G", "H_SNOW", "W_SNOW", "H_ICE"}
                         else self._cutout.weights
                     )
                     values = _weighted(donors, weights)
